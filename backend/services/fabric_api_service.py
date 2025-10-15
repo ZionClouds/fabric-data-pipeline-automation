@@ -250,8 +250,9 @@ class FabricAPIService:
                 "Content-Type": "application/json"
             }
 
-            # Use workspace-level Connections API endpoint
-            create_url = f"{self.base_url}/workspaces/{workspace_id}/connections"
+            # Use global Connections API endpoint (not workspace-level)
+            # Note: Connections API is at /v1/connections, not /v1/workspaces/{id}/connections
+            create_url = f"{self.base_url}/connections"
 
             # Build connection payload based on source type
             payload = self._build_connection_payload(
@@ -284,6 +285,302 @@ class FabricAPIService:
 
         except Exception as e:
             logger.error(f"Error creating connection: {str(e)}")
+            return {
+                "success": False,
+                "error": str(e)
+            }
+
+    # ============================================================================
+    # COMMENTED OUT - WORKING COPYJOB CODE (2025-10-15)
+    # ============================================================================
+    # This code works successfully for copying from external sources to Lakehouse
+    # Kept for reference and potential future use
+    # ============================================================================
+
+    # async def create_copy_job(
+    #     self,
+    #     workspace_id: str,
+    #     copy_job_name: str,
+    #     connection_id: str,
+    #     source_config: Dict[str, Any],
+    #     sink_config: Dict[str, Any]
+    # ) -> Dict[str, Any]:
+    #     """
+    #     Create a CopyJob using Fabric CopyJob API for simple copy operations
+    #
+    #     CopyJob is the recommended approach for copying data from external sources
+    #     (like Azure Blob Storage) to Lakehouse, as it supports direct connection ID references.
+    #
+    #     Args:
+    #         workspace_id: Fabric workspace ID
+    #         copy_job_name: Display name for the copy job
+    #         connection_id: GUID of the connection created via Connections API
+    #         source_config: Source configuration dict with keys:
+    #             - container: Container name (for blob storage)
+    #             - wildcardFileName: File pattern (e.g., "*.csv")
+    #             - recursive: Boolean for recursive search
+    #             - format: Format config dict (type, firstRowAsHeader, etc.)
+    #         sink_config: Sink configuration dict with keys:
+    #             - workspaceId: Lakehouse workspace ID
+    #             - lakehouseId: Lakehouse item ID
+    #             - tableName: Target table name
+    #             - tableAction: "Append" or "Overwrite"
+    #
+    #     Returns:
+    #         Dict with copy job creation result
+    #     """
+    #     try:
+    #         token = await self.get_access_token()
+    #
+    #         headers = {
+    #             "Authorization": f"Bearer {token}",
+    #             "Content-Type": "application/json"
+    #         }
+    #
+    #         # Build CopyJob definition
+    #         copy_job_definition = {
+    #             "properties": {
+    #                 "jobMode": "Batch",
+    #                 "sources": [
+    #                     {
+    #                         "name": "Source",
+    #                         "connectionId": connection_id,
+    #                         "dataSourceType": source_config.get("dataSourceType", "AzureBlobStorage"),
+    #                         "container": source_config.get("container", "data"),
+    #                         "wildcardFileName": source_config.get("wildcardFileName", "*.csv"),
+    #                         "recursive": source_config.get("recursive", True),
+    #                         "format": source_config.get("format", {
+    #                             "type": "DelimitedText",
+    #                             "firstRowAsHeader": True,
+    #                             "columnDelimiter": ","
+    #                         })
+    #                     }
+    #                 ],
+    #                 "sinks": [
+    #                     {
+    #                         "name": "Sink",
+    #                         "dataSourceType": "Lakehouse",
+    #                         "workspaceId": sink_config.get("workspaceId"),
+    #                         "lakehouseId": sink_config.get("lakehouseId"),
+    #                         "tableName": sink_config.get("tableName", "output_table"),
+    #                         "tableAction": sink_config.get("tableAction", "Append")
+    #                     }
+    #                 ],
+    #                 "mappings": [
+    #                     {
+    #                         "source": "Source",
+    #                         "sink": "Sink"
+    #                     }
+    #                 ]
+    #             }
+    #         }
+    #
+    #         # Base64 encode the definition
+    #         import base64
+    #         definition_json = json.dumps(copy_job_definition)
+    #         definition_base64 = base64.b64encode(definition_json.encode()).decode()
+    #
+    #         # Create CopyJob via API
+    #         create_url = f"{self.base_url}/workspaces/{workspace_id}/copyJobs"
+    #
+    #         payload = {
+    #             "displayName": copy_job_name,
+    #             "definition": {
+    #                 "parts": [
+    #                     {
+    #                         "path": "copyjob-content.json",
+    #                         "payload": definition_base64,
+    #                         "payloadType": "InlineBase64"
+    #                     }
+    #                 ]
+    #             }
+    #         }
+    #
+    #         async with httpx.AsyncClient(timeout=60.0) as client:
+    #             response = await client.post(create_url, json=payload, headers=headers)
+    #
+    #             if response.status_code in [200, 201]:
+    #                 result = response.json()
+    #                 copy_job_id = result.get("id")
+    #                 logger.info(f"CopyJob '{copy_job_name}' created successfully: {copy_job_id}")
+    #
+    #                 return {
+    #                     "success": True,
+    #                     "copy_job_id": copy_job_id,
+    #                     "copy_job_name": copy_job_name,
+    #                     "workspace_id": workspace_id,
+    #                     "connection_id": connection_id,
+    #                     "note": "CopyJob created - use this for external source → Lakehouse copy operations"
+    #                 }
+    #             else:
+    #                 logger.error(f"CopyJob creation failed: {response.status_code} - {response.text}")
+    #                 return {
+    #                     "success": False,
+    #                     "error": f"Failed to create CopyJob: {response.text}",
+    #                     "status_code": response.status_code
+    #                 }
+    #
+    #     except Exception as e:
+    #         logger.error(f"Error creating CopyJob: {str(e)}")
+    #         return {
+    #             "success": False,
+    #             "error": str(e)
+    #         }
+
+    # ============================================================================
+    # END OF COMMENTED CODE
+    # ============================================================================
+
+    async def create_onelake_shortcut(
+        self,
+        workspace_id: str,
+        lakehouse_id: str,
+        shortcut_name: str,
+        target_location: str,
+        connection_id: str,
+        shortcut_config: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """
+        Create an OneLake shortcut to external storage (Azure Blob, ADLS Gen2, S3, etc.)
+
+        This allows you to access external data directly in Lakehouse Files folder without copying.
+        The shortcut can then be used as a source in Copy Activity pipelines.
+
+        Args:
+            workspace_id: Fabric workspace ID
+            lakehouse_id: Lakehouse item ID where shortcut will be created
+            shortcut_name: Name of the shortcut folder
+            target_location: Where to create shortcut - "Files" or "Tables"
+            connection_id: GUID of the connection to external storage
+            shortcut_config: Configuration dict with keys:
+                - target_type: "AzureBlob", "AdlsGen2", "S3", etc.
+                - container: Container/bucket name (for blob/S3)
+                - folder_path: Optional path within container (default: root)
+                - For ADLS: filesystem, path
+                - For S3: bucket, prefix
+
+        Returns:
+            Dict with shortcut creation result
+
+        Example:
+            result = await fabric_service.create_onelake_shortcut(
+                workspace_id="c64f4ec0-...",
+                lakehouse_id="5bb4039e-...",
+                shortcut_name="amazon_data",
+                target_location="Files",
+                connection_id="372a9195-...",
+                shortcut_config={
+                    "target_type": "AzureBlob",
+                    "container": "fabric",
+                    "folder_path": "amazon"
+                }
+            )
+        """
+        try:
+            token = await self.get_access_token()
+
+            headers = {
+                "Authorization": f"Bearer {token}",
+                "Content-Type": "application/json"
+            }
+
+            # Build shortcut path - where in lakehouse to create it
+            # path = parent folder (e.g., "Files" or "Files/subfolder")
+            # name = shortcut name
+            # Result: path/name (e.g., "Files/my_shortcut")
+            shortcut_path = target_location  # Just "Files" or "Tables"
+
+            # Build target configuration based on target type
+            # According to Fabric API docs, the target must be a nested object with specific keys
+            target_type = shortcut_config.get("target_type", "AzureBlob")
+
+            if target_type in ["AzureBlob", "AzureBlobStorage"]:
+                # Azure Blob Storage shortcut
+                # Note: Must use .dfs.core.windows.net endpoint for ADLS Gen2 API compatibility
+                storage_account = shortcut_config.get("storage_account", "storage")
+                container = shortcut_config.get("container", "data")
+                folder_path = shortcut_config.get("folder_path", "")
+
+                # Format: location includes container, subpath has folder with leading slash
+                # If folder_path is empty, subpath should be "/" or empty to get entire container
+                if folder_path:
+                    subpath = f"/{folder_path}" if not folder_path.startswith("/") else folder_path
+                else:
+                    subpath = "/"  # Root of container = all data
+
+                target = {
+                    "adlsGen2": {
+                        "connectionId": connection_id,
+                        "location": f"https://{storage_account}.dfs.core.windows.net/{container}",
+                        "subpath": subpath
+                    }
+                }
+            elif target_type in ["AdlsGen2", "AzureBlobFS"]:
+                # ADLS Gen2 shortcut - this is the correct format for Azure Storage
+                storage_account = shortcut_config.get("storage_account", "storage")
+                container = shortcut_config.get("container") or shortcut_config.get("filesystem", "data")
+                subpath = shortcut_config.get("folder_path") or shortcut_config.get("path", "")
+
+                target = {
+                    "adlsGen2": {
+                        "connectionId": connection_id,
+                        "location": f"https://{storage_account}.dfs.core.windows.net/{container}",
+                        "subpath": subpath
+                    }
+                }
+            elif target_type == "S3":
+                # Amazon S3 shortcut
+                bucket = shortcut_config.get("bucket") or shortcut_config.get("container", "data")
+                region = shortcut_config.get("region", "us-west-2")
+                subpath = shortcut_config.get("prefix") or shortcut_config.get("folder_path", "")
+
+                target = {
+                    "amazonS3": {
+                        "connectionId": connection_id,
+                        "location": f"https://{bucket}.s3.{region}.amazonaws.com",
+                        "subpath": subpath
+                    }
+                }
+            else:
+                raise ValueError(f"Unsupported shortcut target type: {target_type}")
+
+            # Build shortcut payload
+            payload = {
+                "path": shortcut_path,
+                "name": shortcut_name,
+                "target": target
+            }
+
+            # Create shortcut via OneLake Shortcuts API
+            create_url = f"{self.base_url}/workspaces/{workspace_id}/items/{lakehouse_id}/shortcuts"
+
+            async with httpx.AsyncClient(timeout=60.0) as client:
+                response = await client.post(create_url, json=payload, headers=headers)
+
+                if response.status_code in [200, 201]:
+                    result = response.json()
+                    logger.info(f"OneLake shortcut '{shortcut_name}' created successfully in {target_location}")
+
+                    return {
+                        "success": True,
+                        "shortcut_name": shortcut_name,
+                        "shortcut_path": shortcut_path,
+                        "workspace_id": workspace_id,
+                        "lakehouse_id": lakehouse_id,
+                        "connection_id": connection_id,
+                        "target_type": target_type,
+                        "note": f"Shortcut created at {target_location}/{shortcut_name} - can now be used in Copy Activity"
+                    }
+                else:
+                    logger.error(f"Shortcut creation failed: {response.status_code} - {response.text}")
+                    return {
+                        "success": False,
+                        "error": f"Failed to create shortcut: {response.text}",
+                        "status_code": response.status_code
+                    }
+
+        except Exception as e:
+            logger.error(f"Error creating OneLake shortcut: {str(e)}")
             return {
                 "success": False,
                 "error": str(e)
@@ -392,7 +689,7 @@ class FabricAPIService:
 
         # Azure Blob Storage
         if source_type in ["blob", "azureblob", "blobstorage"]:
-            auth_type = config.get("auth_type", "AccountKey")
+            auth_type = config.get("auth_type", "ServicePrincipal")
             account_name = config.get("account_name")
 
             payload = {
@@ -422,7 +719,19 @@ class FabricAPIService:
                 }
             }
 
-            if auth_type == "AccountKey" or auth_type == "Key":
+            if auth_type == "ServicePrincipal":
+                # Use Service Principal (recommended for automation)
+                tenant_id = config.get("tenant_id", self.tenant_id)
+                client_id = config.get("client_id", self.client_id)
+                client_secret = config.get("client_secret", self.client_secret)
+
+                payload["credentialDetails"]["credentials"] = {
+                    "credentialType": "ServicePrincipal",
+                    "servicePrincipalClientId": client_id,
+                    "servicePrincipalSecret": client_secret,  # Correct field name
+                    "tenantId": tenant_id
+                }
+            elif auth_type == "AccountKey" or auth_type == "Key":
                 account_key = config.get("account_key")
                 payload["credentialDetails"]["credentials"] = {
                     "credentialType": "Key",
@@ -434,7 +743,7 @@ class FabricAPIService:
                     "credentialType": "SharedAccessSignature",
                     "token": sas_token
                 }
-            elif auth_type == "ManagedIdentity":
+            elif auth_type == "WorkspaceIdentity":
                 payload["credentialDetails"]["credentials"] = {
                     "credentialType": "WorkspaceIdentity"
                 }
