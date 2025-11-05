@@ -45,6 +45,39 @@ class FabricAPIService:
             logger.info("Successfully obtained Fabric API access token")
             return self.access_token
 
+    async def list_workspaces(self) -> List[Dict[str, Any]]:
+        """
+        List all Microsoft Fabric workspaces accessible to the service principal
+
+        Returns:
+            List of workspace dictionaries with id, displayName, description, type, capacityId
+        """
+        try:
+            token = await self.get_access_token()
+
+            headers = {
+                "Authorization": f"Bearer {token}",
+                "Content-Type": "application/json"
+            }
+
+            # Microsoft Fabric API endpoint to list workspaces
+            list_url = f"{self.base_url}/workspaces"
+
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                response = await client.get(list_url, headers=headers)
+                response.raise_for_status()
+
+                data = response.json()
+                workspaces = data.get("value", [])
+
+                logger.info(f"Successfully fetched {len(workspaces)} workspaces from Fabric API")
+
+                return workspaces
+
+        except Exception as e:
+            logger.error(f"Error fetching workspaces from Fabric API: {str(e)}")
+            raise
+
     async def create_pipeline(
         self,
         workspace_id: str,

@@ -223,3 +223,69 @@ class LinkedServiceResponse(BaseModel):
     linked_service_name: str
     source_type: str
     error: Optional[str] = None
+
+# Automated Pipeline Generation Models (with Connection Creation)
+class ConnectionConfig(BaseModel):
+    """Configuration for creating a connection"""
+    connection_name: str
+    connection_type: str  # "blob", "adls", "sharepoint", "azuresql", etc.
+    auth_type: str  # "ServicePrincipal", "AccountKey", "SasToken", "WorkspaceIdentity"
+    properties: Dict[str, Any]  # Connection-specific properties
+
+class PipelineArchitecture(str, Enum):
+    """Pipeline architecture type"""
+    MEDALLION = "medallion"  # Bronze -> Silver -> Gold
+    SIMPLE_COPY = "simple_copy"  # Direct copy from source to destination
+
+class LayerConfig(BaseModel):
+    """Configuration for a medallion layer"""
+    layer_name: str  # "bronze", "silver", "gold"
+    storage_type: str  # "blob", "onelake_tables", "onelake_files"
+    transformations: Optional[List[str]] = None  # List of transformation descriptions
+    component_type: Optional[str] = None  # "copy_activity", "dataflow_gen2", "notebook"
+
+class AutomatedPipelineGenerateRequest(BaseModel):
+    """Request for automated pipeline generation with connection creation"""
+    workspace_id: str
+    pipeline_name: str
+    architecture: PipelineArchitecture
+
+    # Source connection details
+    source_connection: ConnectionConfig
+
+    # Destination connection details (for Bronze/Silver if using Blob)
+    bronze_connection: Optional[ConnectionConfig] = None
+    silver_connection: Optional[ConnectionConfig] = None
+
+    # Gold layer configuration (OneLake)
+    gold_lakehouse_id: Optional[str] = None
+    gold_table_name: Optional[str] = None
+
+    # Layer configurations
+    layers: Optional[List[LayerConfig]] = None
+
+    # Schedule
+    schedule: Optional[str] = "manual"
+
+    # User info
+    created_by: str
+
+class AutomatedPipelineGenerateResponse(BaseModel):
+    """Response for automated pipeline generation"""
+    success: bool
+    pipeline_id: Optional[str] = None
+    pipeline_name: str
+    workspace_id: str
+
+    # Created resources
+    connections_created: List[Dict[str, str]]  # [{"name": "...", "id": "...", "type": "..."}]
+    activities_created: List[str]  # List of activity names
+    notebooks_created: Optional[List[str]] = None  # List of notebook names if any
+
+    # Details
+    architecture: str
+    layers: Optional[List[str]] = None  # ["bronze", "silver", "gold"]
+
+    # Error handling
+    error: Optional[str] = None
+    manual_instructions: Optional[str] = None  # Fallback manual instructions if automation fails
