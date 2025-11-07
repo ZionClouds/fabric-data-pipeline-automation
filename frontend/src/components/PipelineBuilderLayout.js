@@ -51,6 +51,8 @@ const PipelineBuilderLayout = () => {
       setWorkspaces(response.data || []);
     } catch (error) {
       console.error('Failed to load workspaces:', error);
+      // Set empty workspaces array and let user continue
+      setWorkspaces([]);
     } finally {
       setIsLoadingWorkspaces(false);
     }
