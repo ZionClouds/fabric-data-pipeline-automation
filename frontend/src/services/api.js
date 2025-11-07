@@ -5,7 +5,7 @@ const WORKSPACE_API_URL = process.env.REACT_APP_WORKSPACE_API_URL || 'https://fa
 
 // Create axios instance for pipeline builder backend
 const api = axios.create({
-  baseURL: API_BASE_URL,
+  baseURL: WORKSPACE_API_URL,
   headers: {
     'Content-Type': 'application/json',
   },
@@ -49,13 +49,13 @@ workspaceApi.interceptors.request.use(
 // Response interceptor for error handling
 const handleResponse = (error) => {
   if (error.response?.status === 401) {
-    // Unauthorized - clear tokens and logout
-    localStorage.removeItem('msal_token');
-    localStorage.removeItem('user_email');
-    // Only reload if not already on login page
-    if (window.location.pathname !== '/') {
-      window.location.href = '/';
-    }
+    console.log('401 Unauthorized error:', error.config?.url);
+    
+    // Don't automatically log out users on API failures
+    // Let components handle 401 errors appropriately
+    console.warn('API endpoint returned 401:', error.config?.url);
+    console.warn('This might be due to backend configuration, unavailability, or token issues.');
+    console.warn('User will remain logged in. If this is a persistent auth issue, user should manually logout and login again.');
   }
   return Promise.reject(error);
 };
