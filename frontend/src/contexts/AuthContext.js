@@ -96,17 +96,43 @@ export const AuthProvider = ({ children }) => {
 
   const logout = async () => {
     try {
+      // Clear local storage first
       localStorage.removeItem('msal_token');
       localStorage.removeItem('user_email');
 
-      await msalInstance.logoutRedirect({
-        postLogoutRedirectUri: window.location.origin,
-      });
+      // Clear MSAL cache and accounts
+      const accounts = msalInstance.getAllAccounts();
+      if (accounts.length > 0) {
+        // Clear all accounts from MSAL cache
+        accounts.forEach(account => {
+          msalInstance.removeAccount(account);
+        });
+        msalInstance.setActiveAccount(null);
+      }
 
+      // Update state immediately to show login screen
       setUser(null);
       setIsAuthenticated(false);
+
+      // Optional: Perform silent logout from Microsoft without redirect
+      // This clears the Microsoft session in the background
+      try {
+        await msalInstance.logoutPopup({
+          postLogoutRedirectUri: window.location.origin,
+          mainWindowRedirectUri: window.location.origin
+        });
+      } catch (popupError) {
+        // If popup is blocked, fallback to redirect
+        console.warn('Popup logout failed, using redirect:', popupError);
+        await msalInstance.logoutRedirect({
+          postLogoutRedirectUri: window.location.origin,
+        });
+      }
     } catch (error) {
       console.error('Logout error:', error);
+      // Ensure state is updated even if logout fails
+      setUser(null);
+      setIsAuthenticated(false);
     }
   };
 
