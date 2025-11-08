@@ -66,7 +66,7 @@ ALLOWED_ORIGINS = [
 # ============================================================================
 # DEVELOPMENT MODE
 # ============================================================================
-DISABLE_AUTH = True  # Set to False for production
+DISABLE_AUTH = True  # TEMPORARILY re-enabled for development - Set to False for production with valid tokens
 
 # ============================================================================
 # AZURE STORAGE ACCOUNT CONFIGURATION (ADLS Gen2 - Hierarchical Namespace Enabled)

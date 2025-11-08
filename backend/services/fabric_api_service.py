@@ -20,13 +20,24 @@ class FabricAPIService:
         self.client_secret = settings.FABRIC_CLIENT_SECRET
         self.tenant_id = settings.FABRIC_TENANT_ID
         self.access_token = None
+        self.token_expiry = None  # Track when token expires
 
-    async def get_access_token(self) -> str:
+    async def get_access_token(self, force_refresh: bool = False) -> str:
         """
-        Get OAuth2 access token for Fabric API
+        Get OAuth2 access token for Fabric API with automatic refresh
+
+        Args:
+            force_refresh: Force token refresh even if cached token exists
         """
-        if self.access_token:
-            return self.access_token
+        import time
+
+        # Check if we have a valid cached token
+        if not force_refresh and self.access_token and self.token_expiry:
+            # Check if token is still valid (with 5 minute buffer)
+            if time.time() < (self.token_expiry - 300):
+                return self.access_token
+            else:
+                logger.info("Cached token expired, refreshing...")
 
         token_url = f"https://login.microsoftonline.com/{self.tenant_id}/oauth2/v2.0/token"
 
@@ -42,7 +53,12 @@ class FabricAPIService:
             response.raise_for_status()
             token_data = response.json()
             self.access_token = token_data["access_token"]
-            logger.info("Successfully obtained Fabric API access token")
+
+            # Calculate expiry time (tokens typically expire in 3600 seconds)
+            expires_in = token_data.get("expires_in", 3600)
+            self.token_expiry = time.time() + expires_in
+
+            logger.info(f"Successfully obtained Fabric API access token (expires in {expires_in}s)")
             return self.access_token
 
     async def list_workspaces(self) -> List[Dict[str, Any]]:
@@ -113,6 +129,43 @@ class FabricAPIService:
 
         except Exception as e:
             logger.error(f"Error fetching lakehouses from workspace: {str(e)}")
+            return []
+
+    async def get_workspace_notebooks(self, workspace_id: str) -> List[Dict[str, Any]]:
+        """
+        Get all notebooks in a workspace
+
+        Args:
+            workspace_id: Fabric workspace ID
+
+        Returns:
+            List of notebook dictionaries with id, displayName, type
+        """
+        try:
+            token = await self.get_access_token()
+
+            headers = {
+                "Authorization": f"Bearer {token}",
+                "Content-Type": "application/json"
+            }
+
+            # Get all notebooks in workspace
+            list_url = f"{self.base_url}/workspaces/{workspace_id}/notebooks"
+
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                response = await client.get(list_url, headers=headers)
+
+                if response.status_code == 200:
+                    data = response.json()
+                    notebooks = data.get("value", [])
+                    logger.info(f"Found {len(notebooks)} notebook(s) in workspace {workspace_id}")
+                    return notebooks
+                else:
+                    logger.error(f"Error fetching notebooks: {response.status_code} - {response.text}")
+                    return []
+
+        except Exception as e:
+            logger.error(f"Error fetching notebooks from workspace: {str(e)}")
             return []
 
     async def get_lakehouse_shortcuts(self, workspace_id: str, lakehouse_id: str) -> Dict[str, Any]:
@@ -967,22 +1020,72 @@ class FabricAPIService:
                 }
             }
 
+            logger.info(f"\n{'='*80}")
+            logger.info(f"[PIPELINE DEPLOYMENT] Starting deployment to Fabric")
+            logger.info(f"[PIPELINE DEPLOYMENT] Pipeline name: {pipeline_name}")
+            logger.info(f"[PIPELINE DEPLOYMENT] Workspace ID: {workspace_id}")
+            logger.info(f"[PIPELINE DEPLOYMENT] NOTE: Using Lakehouse sources/sinks to avoid connection reference issues")
+            logger.info(f"{'='*80}\n")
+
             async with httpx.AsyncClient(timeout=60.0) as client:
+                logger.info(f"[PIPELINE DEPLOYMENT] Sending request to Fabric API...")
+                logger.debug(f"[PIPELINE DEPLOYMENT] API URL: {create_url}")
+                logger.debug(f"[PIPELINE DEPLOYMENT] Payload size: {len(pipeline_content)} chars")
+
                 response = await client.post(create_url, json=payload, headers=headers)
 
                 if response.status_code == 201 or response.status_code == 200:
                     result = response.json()
-                    logger.info(f"Pipeline created successfully: {result.get('id')}")
+                    pipeline_id = result.get('id')
+
+                    logger.info(f"\n{'='*80}")
+                    logger.info(f"[PIPELINE DEPLOYMENT] [SUCCESS] Pipeline created successfully!")
+                    logger.info(f"[PIPELINE DEPLOYMENT] Pipeline ID: {pipeline_id}")
+                    logger.info(f"[PIPELINE DEPLOYMENT] Pipeline Name: {pipeline_name}")
+                    logger.info(f"[PIPELINE DEPLOYMENT] Workspace ID: {workspace_id}")
+                    logger.info(f"{'='*80}\n")
 
                     return {
                         "success": True,
-                        "pipeline_id": result.get("id"),
+                        "pipeline_id": pipeline_id,
                         "pipeline_name": pipeline_name,
                         "workspace_id": workspace_id,
                         "note": "Pipeline deployed successfully with activities"
                     }
                 else:
-                    logger.error(f"Fabric API error: {response.status_code} - {response.text}")
+                    logger.error(f"\n{'='*80}")
+                    logger.error(f"[PIPELINE DEPLOYMENT] [ERROR] Fabric API error: {response.status_code}")
+                    logger.error(f"[PIPELINE DEPLOYMENT] Response: {response.text}")
+                    logger.error(f"[PIPELINE DEPLOYMENT] Request URL: {create_url}")
+                    logger.error(f"[PIPELINE DEPLOYMENT] Pipeline payload (first 1000 chars):")
+                    logger.error(f"{json.dumps(pipeline_definition, indent=2)[:1000]}")
+
+                    # Check for specific error patterns
+                    error_detail = response.json() if response.text else {"message": "No error details"}
+                    error_str = str(error_detail).lower()
+
+                    if "blobstorage_connection" in error_str or "connection" in error_str and "not found" in error_str:
+                        logger.error(f"\n{'='*80}")
+                        logger.error("[PIPELINE DEPLOYMENT] [CONNECTION ERROR DETECTED]")
+                        logger.error("This error usually means the pipeline is referencing a connection that doesn't exist.")
+                        logger.error("")
+                        logger.error("SOLUTION:")
+                        logger.error("  1. Upload your data to Lakehouse Files instead of using Blob Storage")
+                        logger.error("  2. In Fabric UI: Workspace -> Lakehouse -> Files -> Upload your CSV/Parquet files")
+                        logger.error("  3. Make sure the source type is 'LakehouseFiles', not 'BlobStorage'")
+                        logger.error(f"{'='*80}\n")
+                    elif "lakehouse" in error_str and "not found" in error_str:
+                        logger.error(f"\n{'='*80}")
+                        logger.error("[PIPELINE DEPLOYMENT] [LAKEHOUSE ERROR DETECTED]")
+                        logger.error("The workspace doesn't have a lakehouse or the lakehouse is not accessible.")
+                        logger.error("")
+                        logger.error("SOLUTION:")
+                        logger.error("  1. Create a Lakehouse in your Fabric workspace")
+                        logger.error("  2. In Fabric UI: Workspace -> New -> Lakehouse")
+                        logger.error("  3. Retry the pipeline deployment")
+                        logger.error(f"{'='*80}\n")
+
+                    logger.error(f"{'='*80}\n")
                     raise Exception(f"Failed to create pipeline in Fabric: {response.text}")
 
         except httpx.HTTPStatusError as e:
@@ -1042,7 +1145,9 @@ class FabricAPIService:
         workspace_id: str,
         notebook_name: str,
         notebook_code: str = None,
-        cells: List[Dict[str, Any]] = None
+        cells: List[Dict[str, Any]] = None,
+        lakehouse_id: str = None,
+        lakehouse_workspace_id: str = None
     ) -> Dict[str, Any]:
         """
         Create a notebook in Microsoft Fabric workspace
@@ -1053,6 +1158,8 @@ class FabricAPIService:
             notebook_code: PySpark code for the notebook (single cell - legacy)
             cells: List of cell definitions for multi-cell notebooks
                    Each cell: {"source": "code", "cell_type": "code", "metadata": {...}}
+            lakehouse_id: Optional lakehouse ID to attach to notebook
+            lakehouse_workspace_id: Optional lakehouse workspace ID (defaults to workspace_id)
 
         Returns:
             Dict with notebook_id and deployment info
@@ -1075,17 +1182,68 @@ class FabricAPIService:
             if cells:
                 notebook_cells = cells
             elif notebook_code:
+                # IMPORTANT: Jupyter notebook format requires source to be an array of strings
+                # Each string represents a line of code (with \n at the end)
+                # Split the code into lines and format correctly
+                code_lines = notebook_code.split('\n')
+                # Add newline character to each line except the last
+                source_array = [line + '\n' for line in code_lines[:-1]]
+                if code_lines[-1]:  # Add last line without \n if it's not empty
+                    source_array.append(code_lines[-1])
+
                 notebook_cells = [
                     {
                         "cell_type": "code",
-                        "source": notebook_code,
+                        "source": source_array,  # Array of strings, not a single string
                         "metadata": {},
                         "outputs": [],
                         "execution_count": None
                     }
                 ]
+
+                logger.info(f"[NOTEBOOK BUILD] Created notebook with {len(source_array)} source lines")
             else:
                 raise ValueError("Either notebook_code or cells must be provided")
+
+            # CRITICAL FIX: Add %%configure cell to attach lakehouse to notebook
+            # This is required for notebooks to be referenceable in pipelines
+            # Without lakehouse attachment, pipelines fail with "invalid reference" error
+            if lakehouse_id:
+                lakehouse_ws_id = lakehouse_workspace_id or workspace_id
+
+                # Get lakehouse name for better logging
+                lakehouses = await self.get_workspace_lakehouses(workspace_id)
+                lakehouse_name = "unknown"
+                for lh in lakehouses:
+                    if lh.get("id") == lakehouse_id:
+                        lakehouse_name = lh.get("displayName", "unknown")
+                        break
+
+                # Create %%configure cell with lakehouse attachment
+                # This magic command attaches the lakehouse at runtime
+                configure_cell = {
+                    "cell_type": "code",
+                    "source": [
+                        "%%configure -f\n",
+                        "{\n",
+                        '    "defaultLakehouse": {\n',
+                        f'        "name": "{lakehouse_name}",\n',
+                        f'        "id": "{lakehouse_id}",\n',
+                        f'        "workspaceId": "{lakehouse_ws_id}"\n',
+                        '    }\n',
+                        '}'
+                    ],
+                    "metadata": {},
+                    "outputs": [],
+                    "execution_count": None
+                }
+
+                # Prepend configure cell to notebook
+                notebook_cells = [configure_cell] + notebook_cells
+
+                logger.info(f"[NOTEBOOK BUILD] Added %%configure cell to attach lakehouse")
+                logger.info(f"[NOTEBOOK BUILD] Lakehouse: {lakehouse_name} ({lakehouse_id})")
+                logger.info(f"[NOTEBOOK BUILD] This enables notebook to be referenced in pipelines")
 
             notebook_content = {
                 "nbformat": 4,
@@ -1130,45 +1288,172 @@ class FabricAPIService:
                     except:
                         result = {}
 
+                    # Extract notebook ID from response (check multiple possible fields)
                     notebook_id = result.get('id') or result.get('notebookId') or notebook_name
-                    logger.info(f"Notebook created/accepted: {notebook_id} (status: {response.status_code})")
+
+                    # Try to extract location header for async operations
+                    location_header = response.headers.get('Location') or response.headers.get('location')
+                    operation_id = response.headers.get('x-ms-operation-id') or response.headers.get('X-MS-Operation-Id')
+
+                    logger.info(f"\n{'='*80}")
+                    logger.info(f"[NOTEBOOK DEPLOY] Notebook creation initiated")
+                    logger.info(f"[NOTEBOOK DEPLOY] Status code: {response.status_code}")
+                    logger.info(f"[NOTEBOOK DEPLOY] Notebook ID from response: {notebook_id}")
+                    logger.info(f"[NOTEBOOK DEPLOY] Location header: {location_header if location_header else 'None'}")
+                    logger.info(f"[NOTEBOOK DEPLOY] Operation ID: {operation_id if operation_id else 'None'}")
+                    logger.info(f"{'='*80}")
 
                     # If status is 202, wait for notebook to be fully created
                     if response.status_code == 202:
-                        logger.info(f"Notebook creation is async (202). Waiting for notebook to be ready...")
-                        logger.info(f"Polling for notebook with ID/name: {notebook_id}")
-
-                        # Poll for notebook status (max 60 seconds, check every 2 seconds)
                         import asyncio
-                        max_attempts = 30  # 30 attempts * 2 seconds = 60 seconds total
+
+                        logger.info(f"[NOTEBOOK DEPLOY] Async creation detected (202 Accepted)")
+                        logger.info(f"[NOTEBOOK DEPLOY] Starting operation status polling for: {notebook_name}")
+                        logger.info(f"[NOTEBOOK DEPLOY] Max wait time: 180 seconds (3 minutes)")
+
+                        # POLL OPERATION STATUS using Location header
+                        # This is the proper way to track 202 Accepted responses in Fabric API
+                        max_attempts = 90  # 90 attempts * 2 seconds = 180 seconds total
+                        notebook_found = False
+                        found_notebook_id = None
+                        operation_completed = False
+                        operation_error = None
+
                         for attempt in range(max_attempts):
                             await asyncio.sleep(2)  # Wait 2 seconds between checks
 
-                            # Try to get notebook by listing all notebooks and finding by name
+                            # FIRST: Check operation status if we have a location header
+                            if location_header:
+                                try:
+                                    op_response = await client.get(location_header, headers=headers)
+
+                                    if op_response.status_code == 200:
+                                        op_data = op_response.json()
+                                        op_status = op_data.get("status", "Unknown")
+
+                                        if (attempt + 1) % 10 == 0:  # Log every 20 seconds
+                                            logger.info(f"[NOTEBOOK DEPLOY] Operation status: {op_status} ({(attempt + 1) * 2}s elapsed)")
+
+                                        if op_status in ["Succeeded", "Completed"]:
+                                            operation_completed = True
+                                            logger.info(f"[NOTEBOOK DEPLOY] [OK] Operation completed successfully!")
+                                            # Continue to verify notebook exists in workspace
+                                        elif op_status in ["Failed", "Cancelled"]:
+                                            operation_error = op_data.get("error", {})
+                                            error_message = operation_error.get("message", "Unknown error")
+                                            error_code = operation_error.get("code", "Unknown")
+                                            logger.error(f"[NOTEBOOK DEPLOY] [ERROR] Operation failed!")
+                                            logger.error(f"[NOTEBOOK DEPLOY] Error code: {error_code}")
+                                            logger.error(f"[NOTEBOOK DEPLOY] Error message: {error_message}")
+                                            logger.error(f"[NOTEBOOK DEPLOY] Full error: {json.dumps(operation_error, indent=2)}")
+                                            break
+                                except Exception as e:
+                                    logger.warning(f"[NOTEBOOK DEPLOY] Could not poll operation status: {e}")
+
+                            # SECOND: Verify notebook exists in workspace list
                             list_url = f"{self.base_url}/workspaces/{workspace_id}/notebooks"
                             list_response = await client.get(list_url, headers=headers)
 
                             if list_response.status_code == 200:
                                 notebooks_list = list_response.json().get("value", [])
+
                                 # Check if our notebook exists in the list
-                                notebook_found = any(
-                                    nb.get("displayName") == notebook_name or nb.get("id") == notebook_id
-                                    for nb in notebooks_list
-                                )
+                                for nb in notebooks_list:
+                                    if nb.get("displayName") == notebook_name or nb.get("id") == notebook_id:
+                                        notebook_found = True
+                                        found_notebook_id = nb.get("id")
+                                        logger.info(f"[NOTEBOOK DEPLOY] [OK] Notebook found after {(attempt + 1) * 2} seconds!")
+                                        logger.info(f"[NOTEBOOK DEPLOY] Notebook ID: {found_notebook_id}")
+                                        logger.info(f"[NOTEBOOK DEPLOY] Display name: {nb.get('displayName')}")
+                                        break
 
                                 if notebook_found:
-                                    logger.info(f"Notebook '{notebook_name}' is now ready (attempt {attempt + 1}/{max_attempts})")
                                     break
                                 else:
-                                    logger.debug(f"Notebook not found yet. Total notebooks in workspace: {len(notebooks_list)}")
+                                    # Log every 10 attempts (every 20 seconds)
+                                    if (attempt + 1) % 10 == 0:
+                                        elapsed = (attempt + 1) * 2
+                                        logger.info(f"[NOTEBOOK DEPLOY] Still waiting... ({elapsed}/180 seconds elapsed)")
+                                        logger.info(f"[NOTEBOOK DEPLOY] Total notebooks in workspace: {len(notebooks_list)}")
+                                        logger.info(f"[NOTEBOOK DEPLOY] Notebooks found: {[nb.get('displayName') for nb in notebooks_list]}")
 
-                            if attempt == max_attempts - 1:
-                                logger.warning(f"Notebook '{notebook_name}' creation timeout after {max_attempts * 2} seconds")
-                                # Don't fail - continue anyway as notebook might still be creating
-                                logger.warning(f"Continuing with pipeline creation anyway...")
+                        # Check if notebook was found
+                        if not notebook_found:
+                            # Check if we have operation error details
+                            if operation_error:
+                                error_msg = operation_error.get("message", "Unknown error")
+                                logger.error(f"\n{'='*80}")
+                                logger.error(f"[NOTEBOOK DEPLOY] [ERROR] Notebook creation FAILED!")
+                                logger.error(f"[NOTEBOOK DEPLOY] Notebook: '{notebook_name}'")
+                                logger.error(f"[NOTEBOOK DEPLOY] Fabric API Error: {error_msg}")
+                                logger.error(f"[NOTEBOOK DEPLOY] This will cause pipeline deployment to FAIL")
+                                logger.error(f"{'='*80}\n")
+
+                                # Return error immediately - don't retry if operation explicitly failed
+                                return {
+                                    "success": False,
+                                    "error": f"Notebook creation failed: {error_msg}",
+                                    "notebook_name": notebook_name,
+                                    "status_code": response.status_code,
+                                    "operation_error": operation_error
+                                }
+                            else:
+                                logger.error(f"\n{'='*80}")
+                                logger.error(f"[NOTEBOOK DEPLOY] [ERROR] Notebook creation TIMEOUT!")
+                                logger.error(f"[NOTEBOOK DEPLOY] Notebook '{notebook_name}' not found after 180 seconds")
+                                logger.error(f"[NOTEBOOK DEPLOY] This will cause pipeline deployment to FAIL")
+                                logger.error(f"{'='*80}\n")
+
+                            # RETRY LOGIC: Try creating notebook one more time
+                            logger.info(f"[NOTEBOOK DEPLOY] [RETRY] Attempting to create notebook again...")
+
+                            retry_response = await client.post(create_url, json=payload, headers=headers)
+
+                            if retry_response.status_code in [200, 201, 202]:
+                                logger.info(f"[NOTEBOOK DEPLOY] [RETRY] Notebook creation retry succeeded (status: {retry_response.status_code})")
+
+                                # Wait and poll again (shorter timeout for retry)
+                                for retry_attempt in range(45):  # 45 attempts * 2 seconds = 90 seconds
+                                    await asyncio.sleep(2)
+
+                                    list_response = await client.get(list_url, headers=headers)
+                                    if list_response.status_code == 200:
+                                        notebooks_list = list_response.json().get("value", [])
+                                        for nb in notebooks_list:
+                                            if nb.get("displayName") == notebook_name:
+                                                notebook_found = True
+                                                found_notebook_id = nb.get("id")
+                                                logger.info(f"[NOTEBOOK DEPLOY] [RETRY] [OK] Notebook found after {(retry_attempt + 1) * 2} seconds!")
+                                                break
+                                        if notebook_found:
+                                            break
+
+                                if not notebook_found:
+                                    logger.error(f"[NOTEBOOK DEPLOY] [RETRY] [ERROR] Notebook still not found after retry")
+                                    return {
+                                        "success": False,
+                                        "error": f"Notebook '{notebook_name}' creation timeout after 270 seconds (including retry)",
+                                        "notebook_name": notebook_name,
+                                        "status_code": response.status_code
+                                    }
+                            else:
+                                logger.error(f"[NOTEBOOK DEPLOY] [RETRY] [ERROR] Retry failed: {retry_response.status_code}")
+                                return {
+                                    "success": False,
+                                    "error": f"Notebook '{notebook_name}' creation failed. Original and retry both timed out.",
+                                    "notebook_name": notebook_name,
+                                    "status_code": response.status_code
+                                }
+
+                        # Update notebook_id with the found one
+                        if found_notebook_id:
+                            notebook_id = found_notebook_id
 
                         # Wait additional time to ensure it's fully ready for pipeline reference
-                        await asyncio.sleep(5)
+                        # Fabric needs time to fully propagate notebook metadata before it can be referenced
+                        logger.info(f"[NOTEBOOK DEPLOY] Waiting 15 seconds for notebook to fully propagate in Fabric...")
+                        await asyncio.sleep(15)
+                        logger.info(f"[NOTEBOOK DEPLOY] [OK] Notebook should now be ready for pipeline reference")
 
                     return {
                         "success": True,
@@ -1935,10 +2220,12 @@ class FabricAPIService:
         self,
         activities: List[Dict[str, Any]],
         workspace_id: str = None,
-        lakehouse_id: str = None
+        lakehouse_id: str = None,
+        deployed_notebooks: List[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
         """
         Transform Claude-generated activities to Fabric pipeline format
+        FIXED VERSION - Uses simplified format without connection references
 
         Args:
             activities: List of activities from Claude
@@ -1948,34 +2235,57 @@ class FabricAPIService:
         Returns:
             Dict with 'activities' and 'datasets' arrays
         """
+        logger.info(f"\n{'='*80}")
+        logger.info(f"[ACTIVITY TRANSFORMER] Starting activity transformation")
+        logger.info(f"[ACTIVITY TRANSFORMER] Input: {len(activities)} activities")
+        logger.info(f"[ACTIVITY TRANSFORMER] Workspace ID: {workspace_id}")
+        logger.info(f"[ACTIVITY TRANSFORMER] Lakehouse ID: {lakehouse_id}")
+        logger.info(f"{'='*80}\n")
+
+        # Create notebook name-to-ID mapping
+        notebook_id_map = {}
+        if deployed_notebooks:
+            for nb in deployed_notebooks:
+                if nb.get('success') and nb.get('notebook_name') and nb.get('notebook_id'):
+                    notebook_id_map[nb['notebook_name']] = nb['notebook_id']
+                    logger.info(f"[ACTIVITY TRANSFORMER] Mapped notebook: {nb['notebook_name']} → {nb['notebook_id']}")
+
         fabric_activities = []
         datasets = []
         dataset_counter = 1
 
-        for activity in activities:
+        for idx, activity in enumerate(activities, 1):
             activity_type = activity.get('type', 'Copy')
             activity_name = activity.get('name', 'Activity1')
             config = activity.get('config', {})
             depends_on = activity.get('depends_on', [])
+
+            logger.info(f"\n[ACTIVITY {idx}/{len(activities)}] Processing: '{activity_name}' (Type: {activity_type})")
 
             if activity_type == 'Copy':
                 # Build Copy Activity with proper connection reference
                 source_config = config.get('source', {})
                 sink_config = config.get('sink', {})
 
-                # Inject workspace_id and lakehouse_id into LakehouseFiles sources
-                if source_config.get('type') == 'LakehouseFiles':
+                logger.info(f"[ACTIVITY {idx}] Copy activity configuration:")
+                logger.info(f"  Source type: {source_config.get('type', 'Unknown')}")
+                logger.info(f"  Sink type: {sink_config.get('type', 'Unknown')}")
+                logger.info(f"  Dependencies: {depends_on if depends_on else 'None'}")
+
+                # Inject workspace_id and lakehouse_id into sources
+                # This applies to LakehouseFiles AND Blob/DelimitedText (which get converted to LakehouseFiles)
+                source_type = source_config.get('type', '')
+                if source_type in ['LakehouseFiles'] or 'Blob' in source_type or 'DelimitedText' in source_type:
                     if workspace_id and 'workspace_id' not in source_config:
                         source_config['workspace_id'] = workspace_id
+                        logger.debug(f"[ACTIVITY {idx}] Injected workspace_id into {source_type} source")
                     if lakehouse_id and 'lakehouse_id' not in source_config:
                         source_config['lakehouse_id'] = lakehouse_id
+                        logger.debug(f"[ACTIVITY {idx}] Injected lakehouse_id into {source_type} source")
 
-                # Inject workspace_id and lakehouse_id into sinks
-                if sink_config.get('type') in ['LakehouseTable', 'Lakehouse']:
-                    if workspace_id and 'workspace_id' not in sink_config:
-                        sink_config['workspace_id'] = workspace_id
-                    if lakehouse_id and 'lakehouse_id' not in sink_config:
-                        sink_config['lakehouse_id'] = lakehouse_id
+                # NOTE: We're NOT injecting workspace/lakehouse IDs into sinks anymore
+                # The simplified sink format doesn't require them
+                logger.info(f"[ACTIVITY {idx}] Using simplified sink format (no workspace/item IDs)")
 
                 fabric_activity = {
                     "name": activity_name,
@@ -1986,6 +2296,7 @@ class FabricAPIService:
                         "retry": 2,
                         "retryIntervalInSeconds": 30
                     },
+                    "userProperties": [],
                     "typeProperties": {
                         "source": self._build_copy_source(source_config),
                         "sink": self._build_copy_sink(sink_config),
@@ -1993,69 +2304,104 @@ class FabricAPIService:
                     }
                 }
                 fabric_activities.append(fabric_activity)
-                logger.info(f"Added Copy activity '{activity_name}' with connection reference")
+                logger.info(f"[ACTIVITY {idx}] [OK] Copy activity '{activity_name}' added successfully")
 
             elif activity_type == 'Notebook':
                 # Build Notebook Activity
+                notebook_name = config.get('notebook', 'notebook1')
+                logger.info(f"[ACTIVITY {idx}] Notebook activity configuration:")
+                logger.info(f"  Notebook name: {notebook_name}")
+                logger.info(f"  Parameters: {list(config.get('parameters', {}).keys())}")
+
+                # Validate the notebook exists in deployed notebooks
+                notebook_id = notebook_id_map.get(notebook_name)
+                if notebook_id:
+                    logger.info(f"[ACTIVITY {idx}] Notebook '{notebook_name}' found with ID: {notebook_id}")
+                else:
+                    logger.warning(f"[ACTIVITY {idx}] Notebook '{notebook_name}' not found in deployed notebooks")
+
                 fabric_activity = {
                     "name": activity_name,
                     "type": "SynapseNotebook",
                     "dependsOn": self._format_depends_on(depends_on),
                     "policy": {
                         "timeout": "0.12:00:00",
-                        "retry": 0
+                        "retry": 0,
+                        "retryIntervalInSeconds": 30
                     },
+                    "userProperties": [],
                     "typeProperties": {
                         "notebook": {
-                            "referenceName": config.get('notebook', 'notebook1'),
+                            "referenceName": notebook_id if notebook_id else notebook_name,
                             "type": "NotebookReference"
                         },
                         "parameters": config.get('parameters', {})
                     }
                 }
                 fabric_activities.append(fabric_activity)
+                logger.info(f"[ACTIVITY {idx}] [OK] Notebook activity '{activity_name}' added successfully with referenceName: {notebook_name}")
 
             elif activity_type == 'Lookup':
                 # Build Lookup Activity
+                logger.info(f"[ACTIVITY {idx}] Lookup activity configuration:")
+                logger.info(f"  First row only: {config.get('firstRowOnly', False)}")
+
                 fabric_activity = {
                     "name": activity_name,
                     "type": "Lookup",
                     "dependsOn": self._format_depends_on(depends_on),
                     "policy": {
                         "timeout": "0.12:00:00",
-                        "retry": 2
+                        "retry": 2,
+                        "retryIntervalInSeconds": 30
                     },
+                    "userProperties": [],
                     "typeProperties": {
                         "source": self._build_source(config.get('source', {})),
                         "firstRowOnly": config.get('firstRowOnly', False)
                     }
                 }
                 fabric_activities.append(fabric_activity)
+                logger.info(f"[ACTIVITY {idx}] [OK] Lookup activity '{activity_name}' added successfully")
 
             elif activity_type == 'SetVariable':
                 # Build SetVariable Activity
+                var_name = config.get('variableName', 'var1')
+                logger.info(f"[ACTIVITY {idx}] SetVariable activity configuration:")
+                logger.info(f"  Variable name: {var_name}")
+
                 fabric_activity = {
                     "name": activity_name,
                     "type": "SetVariable",
                     "dependsOn": self._format_depends_on(depends_on),
+                    "userProperties": [],
                     "typeProperties": {
-                        "variableName": config.get('variableName', 'var1'),
+                        "variableName": var_name,
                         "value": config.get('value', '')
                     }
                 }
                 fabric_activities.append(fabric_activity)
+                logger.info(f"[ACTIVITY {idx}] [OK] SetVariable activity '{activity_name}' added successfully")
 
             elif activity_type == 'ForEach':
                 # Build ForEach Activity
+                nested_activities = config.get('activities', [])
+                logger.info(f"[ACTIVITY {idx}] ForEach activity configuration:")
+                logger.info(f"  Nested activities: {len(nested_activities)}")
+                logger.info(f"  Sequential: {config.get('sequential', False)}")
+                logger.info(f"  Batch count: {config.get('batchCount', 20)}")
+
                 nested = self._transform_activities_to_fabric_format(
-                    config.get('activities', []),
+                    nested_activities,
                     workspace_id,
-                    lakehouse_id
+                    lakehouse_id,
+                    deployed_notebooks
                 )
                 fabric_activity = {
                     "name": activity_name,
                     "type": "ForEach",
                     "dependsOn": self._format_depends_on(depends_on),
+                    "userProperties": [],
                     "typeProperties": {
                         "items": config.get('items', {}),
                         "isSequential": config.get('sequential', False),
@@ -2066,6 +2412,34 @@ class FabricAPIService:
                 # Add nested datasets to main datasets list
                 datasets.extend(nested.get('datasets', []))
                 fabric_activities.append(fabric_activity)
+                logger.info(f"[ACTIVITY {idx}] [OK] ForEach activity '{activity_name}' added successfully")
+
+            else:
+                # Unknown activity type - log warning
+                logger.warning(f"[ACTIVITY {idx}] Unknown activity type '{activity_type}', using default handling")
+                fabric_activity = {
+                    "name": activity_name,
+                    "type": activity_type,
+                    "dependsOn": self._format_depends_on(depends_on),
+                    "userProperties": [],
+                    "typeProperties": config
+                }
+                fabric_activities.append(fabric_activity)
+                logger.warning(f"[ACTIVITY {idx}] [WARNING] Activity '{activity_name}' added with default configuration")
+
+        logger.info(f"\n{'='*80}")
+        logger.info(f"[ACTIVITY TRANSFORMER] Transformation complete")
+        logger.info(f"[ACTIVITY TRANSFORMER] Output: {len(fabric_activities)} activities, {len(datasets)} datasets")
+        logger.info(f"[ACTIVITY TRANSFORMER] Activities summary:")
+        for idx, act in enumerate(fabric_activities, 1):
+            logger.info(f"  {idx}. {act['name']} ({act['type']})")
+        logger.info(f"{'='*80}\n")
+
+        logger.info("[ACTIVITY TRANSFORMER] IMPORTANT REMINDERS:")
+        logger.info("  1. Make sure your data is in Lakehouse Files, not Blob Storage!")
+        logger.info("  2. Ensure Lakehouse exists in workspace before deploying!")
+        logger.info("  3. Upload CSV/Parquet files to: Workspace -> Lakehouse -> Files")
+        logger.info(f"{'='*80}\n")
 
         return {
             "activities": fabric_activities,
@@ -2127,8 +2501,16 @@ print(f"Successfully processed {{df.count()}} rows into {sink_table}")
         return script
 
     def _build_copy_source(self, source_config: Dict[str, Any]) -> Dict[str, Any]:
-        """Build proper Fabric Copy Activity source with connection reference"""
+        """
+        Build proper Fabric Copy Activity source - USES LAKEHOUSE FILES TO AVOID CONNECTION ISSUES
+
+        This method converts Blob Storage sources to Lakehouse Files sources to avoid
+        connection reference issues in Fabric pipelines.
+        """
         source_type = source_config.get('type', 'LakehouseTable')
+
+        logger.info(f"[SOURCE BUILDER] Building copy source for type: {source_type}")
+        logger.debug(f"[SOURCE BUILDER] Source config: {json.dumps(source_config, indent=2)}")
 
         if source_type == 'LakehouseFiles':
             # Lakehouse Files source (for shortcuts)
@@ -2139,6 +2521,12 @@ print(f"Successfully processed {{df.count()}} rows into {sink_table}")
             # Get workspace and lakehouse IDs
             workspace_id = source_config.get('workspaceId') or source_config.get('workspace_id')
             item_id = source_config.get('itemId') or source_config.get('item_id') or source_config.get('lakehouse_id')
+
+            logger.info(f"[SOURCE BUILDER] Creating LakehouseFiles source:")
+            logger.info(f"  Path: {path}")
+            logger.info(f"  File pattern: {file_pattern}")
+            logger.info(f"  Workspace ID: {workspace_id}")
+            logger.info(f"  Item ID: {item_id}")
 
             source = {
                 "type": "DelimitedTextSource",
@@ -2160,91 +2548,185 @@ print(f"Successfully processed {{df.count()}} rows into {sink_table}")
             if item_id:
                 source["storeSettings"]["itemId"] = item_id
 
-            return source
-        elif 'Blob' in source_type or 'DelimitedText' in source_type:
-            # Azure Blob Storage source - use the actual connection name
-            container = source_config.get('container', 'fabric')
-            file_path = source_config.get('fileName') or source_config.get('file_path', 'data.csv')
-
-            # Get the connection name - this should match what was actually created
-            # Try different possible field names
-            connection_name = (source_config.get('linkedService') or
-                              source_config.get('linkedServiceName') or
-                              source_config.get('linked_service_name') or
-                              source_config.get('connection_name') or
-                              'blobstorage_connection')  # Default fallback
-
-            # Normalize the connection name to match what was created
-            connection_name = connection_name.lower().replace(' ', '_')
-
-            return {
-                "type": "DelimitedTextSource",
-                "connection": {
-                    "referenceName": connection_name,  # Use normalized name
-                    "type": "ConnectionReference"
+            # CRITICAL FIX: Add datasetSettings - REQUIRED by Fabric API for Copy activities
+            # Without this, Fabric returns: "invalid Source DatasetSettings <null>"
+            source["datasetSettings"] = {
+                "linkedService": {
+                    "referenceName": "Lakehouse",
+                    "type": "LinkedServiceReference"
                 },
+                "type": "DelimitedText",
+                "typeProperties": {
+                    "location": {
+                        "type": "LakehouseLocation",
+                        "folderPath": path.replace("Files/", "") if path.startswith("Files/") else path
+                    },
+                    "columnDelimiter": ",",
+                    "escapeChar": "\\",
+                    "firstRowAsHeader": True,
+                    "quoteChar": "\""
+                },
+                "annotations": [],
+                "schema": []
+            }
+
+            logger.info(f"[SOURCE BUILDER] [OK] LakehouseFiles source created with datasetSettings")
+            return source
+
+        elif 'Blob' in source_type or 'DelimitedText' in source_type:
+            # Blob Storage or Delimited Text source - treat as Lakehouse Files
+            container = source_config.get('container', 'fabric')
+            path = source_config.get('path', f'Files/{container}')
+
+            # Parse path to separate folder and file pattern
+            # If path contains wildcards like "data/*.*", split it
+            import os
+            if '*' in path or '?' in path:
+                # Path contains wildcards - extract folder and pattern
+                folder_path = os.path.dirname(path) if '/' in path else ''
+                file_pattern = os.path.basename(path)
+
+                # Ensure folder_path starts with "Files/" (Lakehouse requirement)
+                if folder_path and not folder_path.startswith('Files/'):
+                    folder_path = f'Files/{folder_path}'
+                elif not folder_path:
+                    folder_path = 'Files'
+
+                # Validate file pattern - ensure it has an extension
+                # Fabric API requires patterns like *.csv, *.parquet, not just *
+                if file_pattern == '*' or file_pattern == '*.':
+                    file_pattern = '*.*'  # Default to all files with extensions
+            else:
+                # No wildcards in path - use as folder, get pattern from filePattern or fileName
+                folder_path = path
+                file_pattern = source_config.get('filePattern', '*.*')
+
+                # Ensure folder_path starts with "Files/" (Lakehouse requirement)
+                if folder_path and not folder_path.startswith('Files/'):
+                    folder_path = f'Files/{folder_path}'
+
+            # Get workspace and lakehouse IDs
+            workspace_id = source_config.get('workspaceId') or source_config.get('workspace_id')
+            item_id = source_config.get('itemId') or source_config.get('item_id') or source_config.get('lakehouse_id')
+
+            logger.info(f"[SOURCE BUILDER] Creating Blob/DelimitedText source as LakehouseReadSettings:")
+            logger.info(f"  Folder path: {folder_path}")
+            logger.info(f"  File pattern: {file_pattern}")
+            logger.info(f"  Workspace ID: {workspace_id}")
+            logger.info(f"  Item ID: {item_id}")
+
+            source = {
+                "type": "DelimitedTextSource",
                 "storeSettings": {
-                    "type": "AzureBlobStorageReadSettings",
+                    "type": "LakehouseReadSettings",
                     "recursive": True,
-                    "wildcardFileName": file_path,
-                    "wildcardFolderPath": container  # Use container as folder path
+                    "wildcardFileName": file_pattern,
+                    "wildcardFolderPath": folder_path,
+                    "enablePartitionDiscovery": False
                 },
                 "formatSettings": {
                     "type": "DelimitedTextReadSettings"
                 }
             }
+
+            # Add workspace and item IDs if provided
+            if workspace_id:
+                source["storeSettings"]["workspaceId"] = workspace_id
+            if item_id:
+                source["storeSettings"]["itemId"] = item_id
+
+            # CRITICAL FIX: Add datasetSettings - REQUIRED by Fabric API for Copy activities
+            # Without this, Fabric returns: "invalid Source DatasetSettings <null>"
+            source["datasetSettings"] = {
+                "linkedService": {
+                    "referenceName": "Lakehouse",
+                    "type": "LinkedServiceReference"
+                },
+                "type": "DelimitedText",
+                "typeProperties": {
+                    "location": {
+                        "type": "LakehouseLocation",
+                        "folderPath": folder_path.replace("Files/", "") if folder_path.startswith("Files/") else folder_path
+                    },
+                    "columnDelimiter": ",",
+                    "escapeChar": "\\",
+                    "firstRowAsHeader": True,
+                    "quoteChar": "\""
+                },
+                "annotations": [],
+                "schema": []
+            }
+
+            logger.info(f"[SOURCE BUILDER] [OK] Blob/DelimitedText source created with datasetSettings")
+            return source
+
         elif source_type == 'LakehouseTable':
             # Lakehouse table source
+            table_name = source_config.get('table') or source_config.get('tableName', 'unknown_table')
+
+            logger.info(f"[SOURCE BUILDER] Creating LakehouseTable source for table: {table_name}")
+
             source = {
                 "type": "LakehouseTableSource"
             }
             # Add query if present
             if 'query' in source_config:
                 source['query'] = source_config['query']
+                logger.debug(f"[SOURCE BUILDER] Added query: {source_config['query'][:100]}...")
             if 'table' in source_config or 'tableName' in source_config:
-                source['table'] = source_config.get('table') or source_config.get('tableName')
+                source['table'] = table_name
+                logger.info(f"[SOURCE BUILDER] Table name: {table_name}")
+
+            logger.info(f"[SOURCE BUILDER] [OK] LakehouseTable source created")
             return source
         else:
             # Default to lakehouse
+            logger.warning(f"[SOURCE BUILDER] Unknown source type '{source_type}', defaulting to LakehouseTable")
             return {
                 "type": "LakehouseTableSource"
             }
 
     def _build_copy_sink(self, sink_config: Dict[str, Any]) -> Dict[str, Any]:
-        """Build proper Fabric Copy Activity sink with lakehouse reference"""
+        """
+        Build proper Fabric Copy Activity sink - SIMPLIFIED VERSION WITHOUT WORKSPACE/ITEM IDS
+
+        Uses LakehouseTableSink format which doesn't require explicit workspace/item references
+        when the pipeline is created in the same workspace as the lakehouse.
+        """
         sink_type = sink_config.get('type', 'LakehouseTable')
+
+        logger.info(f"[SINK BUILDER] Building copy sink for type: {sink_type}")
+        logger.debug(f"[SINK BUILDER] Sink config: {json.dumps(sink_config, indent=2)}")
 
         # Get required sink parameters
         table_name = sink_config.get('table') or sink_config.get('tableName', 'output_table')
-        workspace_id = sink_config.get('workspaceId') or sink_config.get('workspace_id')
-        item_id = sink_config.get('itemId') or sink_config.get('item_id') or sink_config.get('lakehouse_id')
         table_action = sink_config.get('tableActionOption', 'Append')  # Default to Append
 
+        logger.info(f"[SINK BUILDER] Sink parameters:")
+        logger.info(f"  Table name: {table_name}")
+        logger.info(f"  Table action: {table_action}")
+
         if 'Lakehouse' in sink_type or sink_type == 'LakehouseTable':
-            # Lakehouse sink with all required fields
+            # Lakehouse sink - simplified without workspace/item IDs
+            # The pipeline will use the workspace's default lakehouse
+            logger.info(f"[SINK BUILDER] Creating simplified LakehouseTableSink (no workspace/item IDs)")
+
             sink_payload = {
-                "type": "LakehouseSink",
-                "rootFolder": "Tables",
-                "table": table_name,
-                "tableActionOption": table_action
+                "type": "LakehouseTableSink",
+                "tableActionOption": table_action,
+                "partitionOption": "None"
             }
 
-            # Add workspaceId if provided
-            if workspace_id:
-                sink_payload["workspaceId"] = workspace_id
-
-            # Add itemId if provided
-            if item_id:
-                sink_payload["itemId"] = item_id
-
+            logger.info(f"[SINK BUILDER] [OK] LakehouseTableSink created successfully")
+            logger.info(f"[SINK BUILDER] Data will be written to: Tables/{table_name}")
             return sink_payload
         else:
             # Default lakehouse sink
+            logger.warning(f"[SINK BUILDER] Unknown sink type '{sink_type}', defaulting to LakehouseTableSink")
             return {
-                "type": "LakehouseSink",
-                "rootFolder": "Tables",
-                "table": table_name,
-                "tableActionOption": table_action
+                "type": "LakehouseTableSink",
+                "tableActionOption": table_action,
+                "partitionOption": "None"
             }
 
     def _format_depends_on(self, depends_on: List[str]) -> List[Dict[str, Any]]:
@@ -2380,16 +2862,93 @@ print(f"Successfully processed {{df.count()}} rows into {sink_table}")
                     )
                     deployed_linked_services.append(result)
 
-            # Deploy notebooks
+            # Deploy notebooks with lakehouse attachment
+            # CRITICAL FIX: Check for existing notebooks to avoid "ItemDisplayNameAlreadyInUse" error
             deployed_notebooks = []
+            notebook_id_map = {}  # Track notebook name -> ID mapping
+
+            # First, get list of existing notebooks in workspace
+            logger.info(f"[DEPLOY PIPELINE] Checking for existing notebooks in workspace...")
+            existing_notebooks = {}
+            try:
+                token = await self.get_access_token()
+                headers = {"Authorization": f"Bearer {token}"}
+                list_url = f"{self.base_url}/workspaces/{workspace_id}/notebooks"
+
+                async with httpx.AsyncClient(timeout=30.0) as client:
+                    list_response = await client.get(list_url, headers=headers)
+                    if list_response.status_code == 200:
+                        notebooks_list = list_response.json().get("value", [])
+                        for nb in notebooks_list:
+                            nb_name = nb.get("displayName")
+                            if nb_name:
+                                existing_notebooks[nb_name] = nb.get("id")
+                        logger.info(f"[DEPLOY PIPELINE] Found {len(existing_notebooks)} existing notebooks")
+                        if existing_notebooks:
+                            logger.info(f"[DEPLOY PIPELINE] Existing: {list(existing_notebooks.keys())}")
+            except Exception as e:
+                logger.warning(f"[DEPLOY PIPELINE] Could not list existing notebooks: {e}")
+
+            # Deploy each notebook (create or reuse)
             for notebook in notebooks:
-                logger.info(f"Deploying notebook: {notebook['notebook_name']}")
-                result = await self.create_notebook(
-                    workspace_id=workspace_id,
-                    notebook_name=notebook['notebook_name'],
-                    notebook_code=notebook['code']
-                )
+                notebook_name = notebook['notebook_name']
+                logger.info(f"[DEPLOY PIPELINE] Processing notebook: {notebook_name}")
+
+                # Check if notebook already exists
+                if notebook_name in existing_notebooks:
+                    notebook_id = existing_notebooks[notebook_name]
+                    logger.info(f"[DEPLOY PIPELINE] ✓ Notebook '{notebook_name}' already exists")
+                    logger.info(f"[DEPLOY PIPELINE] Notebook ID: {notebook_id}")
+                    logger.info(f"[DEPLOY PIPELINE] Skipping creation, will reuse existing notebook")
+
+                    result = {
+                        "success": True,
+                        "notebook_id": notebook_id,
+                        "notebook_name": notebook_name,
+                        "message": "Using existing notebook",
+                        "created": False
+                    }
+                    notebook_id_map[notebook_name] = notebook_id
+                else:
+                    # Notebook doesn't exist, create it with lakehouse attachment
+                    logger.info(f"[DEPLOY PIPELINE] Creating new notebook: {notebook_name}")
+                    result = await self.create_notebook(
+                        workspace_id=workspace_id,
+                        notebook_name=notebook_name,
+                        notebook_code=notebook['code'],
+                        lakehouse_id=lakehouse_id,  # Attach lakehouse to enable pipeline references
+                        lakehouse_workspace_id=workspace_id
+                    )
+                    if result.get('success'):
+                        result["created"] = True
+                        notebook_id = result.get('notebook_id')
+                        if notebook_id:
+                            notebook_id_map[notebook_name] = notebook_id
+
                 deployed_notebooks.append(result)
+
+                # FAIL FAST: Check if notebook deployment failed
+                if not result.get('success', False):
+                    error_msg = result.get('error', 'Unknown notebook deployment error')
+                    logger.error(f"\n{'='*80}")
+                    logger.error(f"[DEPLOY PIPELINE] [ERROR] Notebook deployment FAILED!")
+                    logger.error(f"[DEPLOY PIPELINE] Notebook: {notebook_name}")
+                    logger.error(f"[DEPLOY PIPELINE] Error: {error_msg}")
+                    logger.error(f"[DEPLOY PIPELINE] CANNOT continue with pipeline deployment")
+                    logger.error(f"[DEPLOY PIPELINE] Pipeline references this notebook but it doesn't exist")
+                    logger.error(f"{'='*80}\n")
+
+                    raise Exception(f"Notebook deployment failed: {error_msg}. Cannot deploy pipeline that references non-existent notebook '{notebook_name}'")
+
+            # Verify all notebooks deployed successfully
+            logger.info(f"\n{'='*80}")
+            logger.info(f"[DEPLOY PIPELINE] Notebook deployment summary:")
+            for i, result in enumerate(deployed_notebooks):
+                status = "[OK]" if result.get('success') else "[FAILED]"
+                created_status = "(new)" if result.get('created') else "(existing)"
+                logger.info(f"  {i+1}. {result.get('notebook_name')}: {status} {created_status}")
+            logger.info(f"[DEPLOY PIPELINE] All {len(deployed_notebooks)} notebooks ready!")
+            logger.info(f"{'='*80}\n")
 
             # Log activities for debugging
             logger.info(f"Activities to deploy: {len(activities)}")
@@ -2401,7 +2960,8 @@ print(f"Successfully processed {{df.count()}} rows into {sink_table}")
 
             # Transform activities to Fabric format
             # Pass workspace_id and lakehouse_id to inject into LakehouseFiles sources
-            transformed = self._transform_activities_to_fabric_format(activities, workspace_id, lakehouse_id)
+            # Pass deployed_notebooks to map notebook names to IDs
+            transformed = self._transform_activities_to_fabric_format(activities, workspace_id, lakehouse_id, deployed_notebooks)
             fabric_activities = transformed['activities']
             datasets = transformed.get('datasets', [])
 
@@ -2415,7 +2975,7 @@ print(f"Successfully processed {{df.count()}} rows into {sink_table}")
 
             # Create Fabric pipeline definition with datasets
             fabric_pipeline_def = {
-                "name": pipeline_name,
+                "displayName": pipeline_name,
                 "properties": {
                     "activities": fabric_activities,
                     "annotations": [],
@@ -2443,6 +3003,24 @@ print(f"Successfully processed {{df.count()}} rows into {sink_table}")
             if connection_refs:
                 logger.info(f"Pipeline references these connections: {', '.join(connection_refs)}")
                 logger.warning(f"IMPORTANT: Ensure these connections exist in workspace {workspace_id} before deploying!")
+
+            # Verify notebooks are accessible before creating pipeline
+            if deployed_notebooks:
+                logger.info(f"\n{'='*80}")
+                logger.info(f"[PIPELINE DEPLOY] Verifying notebooks are accessible in workspace...")
+                try:
+                    notebooks_list = await self.get_workspace_notebooks(workspace_id)
+                    notebook_names = [nb.get('displayName') for nb in notebooks_list if nb.get('displayName')]
+
+                    for deployed_nb in deployed_notebooks:
+                        nb_name = deployed_nb.get('notebook_name')
+                        if nb_name in notebook_names:
+                            logger.info(f"[PIPELINE DEPLOY] ✓ Notebook '{nb_name}' is accessible")
+                        else:
+                            logger.warning(f"[PIPELINE DEPLOY] ✗ Notebook '{nb_name}' not found in workspace notebooks list!")
+                except Exception as e:
+                    logger.warning(f"[PIPELINE DEPLOY] Could not verify notebooks: {str(e)}")
+                logger.info(f"{'='*80}\n")
 
             # Deploy pipeline
             logger.info(f"Deploying pipeline: {pipeline_name}")
@@ -2528,7 +3106,7 @@ print(f"Successfully processed {{df.count()}} rows into {sink_table}")
             # Fabric API expects the pipeline definition in a specific format
             if "properties" in pipeline_def:
                 fabric_pipeline_def = {
-                    "name": pipeline_name,
+                    "displayName": pipeline_name,
                     "properties": pipeline_def["properties"]
                 }
             else:
