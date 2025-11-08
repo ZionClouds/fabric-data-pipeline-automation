@@ -3,14 +3,21 @@ Azure AI Agent Service with Bing Grounding
 
 This service uses Azure AI Agents (not Chat Completions) to enable Bing Grounding.
 Bing Grounding resource is designed for Agents, not direct Chat API calls.
+
+Authentication: Uses Service Principal (ClientSecretCredential) for production reliability.
+Credentials are loaded from config module (FABRIC_CLIENT_ID, FABRIC_TENANT_ID, FABRIC_CLIENT_SECRET).
 """
 
 import logging
 from typing import List, Dict, Any
 from azure.ai.projects import AIProjectClient
-from azure.ai.agents.models import MessageRole
-from azure.identity import DefaultAzureCredential
-from azure.core.credentials import AzureKeyCredential
+from azure.identity import ClientSecretCredential
+import sys
+import os
+
+# Add parent directory to path to import settings
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+import settings
 
 logger = logging.getLogger(__name__)
 
@@ -34,22 +41,28 @@ class AzureAIAgentService:
 
         Args:
             project_endpoint: Azure AI Project endpoint URL
-            api_key: API key for authentication (optional, uses DefaultAzureCredential if not provided)
+            api_key: API key for authentication (optional, uses Service Principal if not provided)
             bing_connection_id: Connection ID to Bing Grounding resource
             model_deployment: Model deployment name
         """
-        # Initialize the AI Project client with DefaultAzureCredential
-        # This uses the credentials from 'az login'
+        # Initialize the AI Project client with Service Principal credentials
+        # This uses the service principal from settings (FABRIC_CLIENT_ID, FABRIC_TENANT_ID, FABRIC_CLIENT_SECRET)
+        credential = ClientSecretCredential(
+            tenant_id=settings.FABRIC_TENANT_ID,
+            client_id=settings.FABRIC_CLIENT_ID,
+            client_secret=settings.FABRIC_CLIENT_SECRET
+        )
+
         self.client = AIProjectClient(
             endpoint=project_endpoint,
-            credential=DefaultAzureCredential()
+            credential=credential
         )
 
         self.model_deployment = model_deployment
         self.bing_connection_id = bing_connection_id
         self.agent = None
 
-        logger.info(f"Azure AI Agent Service initialized with endpoint: {project_endpoint}")
+        logger.info(f"Azure AI Agent Service initialized with Service Principal authentication")
 
     def _get_or_create_agent(self):
         """

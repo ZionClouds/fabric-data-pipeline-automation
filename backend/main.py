@@ -11,8 +11,8 @@ import ssl
 import certifi
 import os
 
-# Import config and services
-import config
+# Import settings and services
+import settings
 from services.claude_ai_service import ClaudeAIService
 from services.azure_openai_service import AzureOpenAIService
 from services.azure_ai_agent_service import AzureAIAgentService
@@ -25,7 +25,8 @@ from models.pipeline_models import (
     PipelineGenerateRequest, PipelineGenerateResponse,
     LinkedServiceRequest, LinkedServiceResponse,
     AutomatedPipelineGenerateRequest, AutomatedPipelineGenerateResponse,
-    ConnectionConfig, PipelineArchitecture, LayerConfig
+    ConnectionConfig, PipelineArchitecture, LayerConfig,
+    FileProcessingPipelineRequest, FileProcessingPipelineResponse
 )
 
 # In-memory storage for generated pipelines (temporary - should use database in production)
@@ -45,7 +46,7 @@ app = FastAPI(
 # CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=config.ALLOWED_ORIGINS,
+    allow_origins=settings.ALLOWED_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -57,19 +58,19 @@ fabric_service = FabricAPIService()
 
 # Initialize Azure OpenAI service (GPT-5 with Bing Search)
 azure_openai_service = AzureOpenAIService(
-    azure_endpoint=config.AZURE_OPENAI_ENDPOINT,
-    api_key=config.AZURE_OPENAI_API_KEY,
-    deployment_name=config.AZURE_OPENAI_DEPLOYMENT,
-    api_version=config.AZURE_OPENAI_API_VERSION,
-    bing_api_key=config.BING_SEARCH_API_KEY,
-    bing_endpoint=config.BING_SEARCH_ENDPOINT
+    azure_endpoint=settings.AZURE_OPENAI_ENDPOINT,
+    api_key=settings.AZURE_OPENAI_API_KEY,
+    deployment_name=settings.AZURE_OPENAI_DEPLOYMENT,
+    api_version=settings.AZURE_OPENAI_API_VERSION,
+    bing_api_key=settings.BING_SEARCH_API_KEY,
+    bing_endpoint=settings.BING_SEARCH_ENDPOINT
 )
 
 # Initialize Azure AI Agent service (GPT-4o-mini with Bing Grounding via Agents)
 agent_service = AzureAIAgentService(
-    project_endpoint=config.AZURE_AI_PROJECT_ENDPOINT,
-    api_key=config.AZURE_OPENAI_API_KEY,
-    bing_connection_id=config.BING_GROUNDING_CONNECTION_ID,
+    project_endpoint=settings.AZURE_AI_PROJECT_ENDPOINT,
+    api_key=settings.AZURE_OPENAI_API_KEY,
+    bing_connection_id=settings.BING_GROUNDING_CONNECTION_ID,
     model_deployment="gpt-4o-mini-bing"
 )
 
@@ -77,7 +78,7 @@ agent_service = AzureAIAgentService(
 security = HTTPBearer(auto_error=False)
 
 # Microsoft Azure AD configuration
-AZURE_TENANT_ID = config.FABRIC_TENANT_ID
+AZURE_TENANT_ID = settings.FABRIC_TENANT_ID
 JWKS_URL = f"https://login.microsoftonline.com/{AZURE_TENANT_ID}/discovery/v2.0/keys"
 
 # Create SSL context with certifi certificates
@@ -89,7 +90,7 @@ async def validate_token(credentials: HTTPAuthorizationCredentials = Depends(sec
     Validate Microsoft Azure AD JWT token
     """
     # Development mode: bypass authentication
-    if config.DISABLE_AUTH == "true":
+    if settings.DISABLE_AUTH is True or settings.DISABLE_AUTH == "true":
         logger.info("Development mode: bypassing authentication")
         return {"email": "dev@example.com", "name": "Development User", "oid": "dev-user-id"}
 
@@ -101,10 +102,6 @@ async def validate_token(credentials: HTTPAuthorizationCredentials = Depends(sec
     logger.info(f"Validating token: {token[:50]}...")
 
     try:
-        # For development/testing, skip validation if token is 'test'
-        if token == 'test':
-            return {"email": "test@example.com", "name": "Test User"}
-
         # Get signing keys from Microsoft with SSL context
         jwks_client = PyJWKClient(JWKS_URL, ssl_context=ssl_context)
         signing_key = jwks_client.get_signing_key_from_jwt(token)
@@ -123,8 +120,8 @@ async def validate_token(credentials: HTTPAuthorizationCredentials = Depends(sec
         logger.info(f"Token decoded. Issuer: {payload.get('iss')}, Audience: {payload.get('aud')}")
 
         # Verify the app ID is in the token
-        if payload.get("appid") != config.FABRIC_CLIENT_ID and payload.get("azp") != config.FABRIC_CLIENT_ID:
-            logger.warning(f"Token appid: {payload.get('appid')}, Expected: {config.FABRIC_CLIENT_ID}")
+        if payload.get("appid") != settings.FABRIC_CLIENT_ID and payload.get("azp") != settings.FABRIC_CLIENT_ID:
+            logger.warning(f"Token appid: {payload.get('appid')}, Expected: {settings.FABRIC_CLIENT_ID}")
 
         user_email = payload.get("preferred_username") or payload.get("upn") or payload.get("email")
         user_name = payload.get("name")
@@ -147,6 +144,173 @@ async def validate_token(credentials: HTTPAuthorizationCredentials = Depends(sec
         logger.error(f"Token validation error: {str(e)}", exc_info=True)
         raise HTTPException(status_code=401, detail="Authentication failed")
 
+# Helper Functions
+async def create_blob_storage_shortcuts(workspace_id: str) -> Dict[str, Any]:
+    """
+    Check for existing OneLake shortcuts and inform user
+    If shortcuts don't exist, guide user to create them manually (API limitation)
+
+    Returns:
+        Dict with success status, existing shortcuts info
+    """
+    try:
+        # Get lakehouse from workspace
+        lakehouses = await fabric_service.get_workspace_lakehouses(workspace_id)
+
+        if not lakehouses:
+            return {
+                "success": False,
+                "error": "No lakehouse found in workspace",
+                "message": "Please create a lakehouse in your workspace first"
+            }
+
+        lakehouse = lakehouses[0]  # Use first lakehouse
+        lakehouse_id = lakehouse.get("id")
+        lakehouse_name = lakehouse.get("displayName", "Unknown")
+
+        logger.info(f"Using lakehouse: {lakehouse_name} ({lakehouse_id})")
+
+        # Check for existing shortcuts
+        existing_shortcuts = await fabric_service.get_lakehouse_shortcuts(workspace_id, lakehouse_id)
+
+        if existing_shortcuts.get("success"):
+            shortcuts = existing_shortcuts.get("shortcuts", [])
+
+            # Check if bronze and silver shortcuts already exist
+            bronze_exists = any(s.get("name") == "bronze" for s in shortcuts)
+            silver_exists = any(s.get("name") == "silver" for s in shortcuts)
+
+            if bronze_exists and silver_exists:
+                logger.info("Bronze and silver shortcuts already exist")
+                return {
+                    "success": True,
+                    "lakehouse_name": lakehouse_name,
+                    "lakehouse_id": lakehouse_id,
+                    "shortcuts": [
+                        {"name": "bronze", "container": "bronze", "path": "Files/bronze"},
+                        {"name": "silver", "container": "silver", "path": "Files/silver"}
+                    ],
+                    "storage_account": settings.STORAGE_ACCOUNT_NAME,
+                    "already_exists": True,
+                    "message": "Shortcuts already exist in your lakehouse"
+                }
+            elif bronze_exists or silver_exists:
+                logger.info(f"Some shortcuts exist: bronze={bronze_exists}, silver={silver_exists}")
+                # Partial setup - inform user
+                return {
+                    "success": False,
+                    "error": "Partial shortcut setup detected",
+                    "message": f"Found existing shortcuts but not complete. Bronze: {'✓' if bronze_exists else '✗'}, Silver: {'✓' if silver_exists else '✗'}"
+                }
+
+        logger.info(f"No shortcuts found, would need manual creation")
+
+        # Create connection for blob storage using settings
+        import datetime
+        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        connection_name = f"BlobStorage_{settings.STORAGE_ACCOUNT_NAME}_{timestamp}"
+
+        connection_result = await fabric_service.create_connection(
+            workspace_id=workspace_id,
+            connection_name=connection_name,
+            source_type="adls",  # Use ADLS Gen2 for shortcuts
+            connection_config={
+                "account_name": settings.STORAGE_ACCOUNT_NAME,
+                "auth_type": "WorkspaceIdentity"  # Use Workspace Identity for ADLS Gen2
+            }
+        )
+
+        if not connection_result.get("success"):
+            error_msg = connection_result.get("error", "Unknown error")
+            # Check if it's a duplicate connection error
+            if "DuplicateConnectionName" in str(error_msg):
+                logger.warning(f"Connection with similar name already exists, trying with different name...")
+                # Try again with a random suffix
+                import random
+                random_suffix = random.randint(1000, 9999)
+                connection_name = f"BlobStorage_{settings.STORAGE_ACCOUNT_NAME}_{random_suffix}"
+
+                connection_result = await fabric_service.create_connection(
+                    workspace_id=workspace_id,
+                    connection_name=connection_name,
+                    source_type="adls",  # Use ADLS Gen2 for shortcuts
+                    connection_config={
+                        "account_name": settings.STORAGE_ACCOUNT_NAME,
+                        "auth_type": "WorkspaceIdentity"  # Use Workspace Identity for ADLS Gen2
+                    }
+                )
+
+                if not connection_result.get("success"):
+                    return {
+                        "success": False,
+                        "error": "Failed to create connection after retry",
+                        "message": connection_result.get("error", "Unknown error")
+                    }
+            else:
+                return {
+                    "success": False,
+                    "error": "Failed to create connection",
+                    "message": error_msg
+                }
+
+        connection_id = connection_result.get("connection_id")
+        logger.info(f"Connection created: {connection_name} ({connection_id})")
+
+        # Create shortcuts for bronze and silver containers
+        shortcuts_created = []
+
+        for container_name in ["bronze", "silver"]:
+            shortcut_name = f"azure_blob_{container_name}"
+
+            shortcut_result = await fabric_service.create_onelake_shortcut(
+                workspace_id=workspace_id,
+                lakehouse_id=lakehouse_id,
+                shortcut_name=shortcut_name,
+                target_location="Files",  # Create in Files folder
+                connection_id=connection_id,
+                shortcut_config={
+                    "target_type": "AdlsGen2",  # Use ADLS Gen2 format
+                    "storage_account": settings.STORAGE_ACCOUNT_NAME,
+                    "container": container_name,
+                    "folder_path": ""  # Root of container
+                }
+            )
+
+            if shortcut_result.get("success"):
+                shortcuts_created.append({
+                    "name": shortcut_name,
+                    "container": container_name,
+                    "path": f"Files/{shortcut_name}"
+                })
+                logger.info(f"Shortcut created: {shortcut_name}")
+            else:
+                logger.warning(f"Failed to create shortcut for {container_name}: {shortcut_result.get('error')}")
+
+        if shortcuts_created:
+            return {
+                "success": True,
+                "lakehouse_name": lakehouse_name,
+                "lakehouse_id": lakehouse_id,
+                "connection_name": connection_name,
+                "connection_id": connection_id,
+                "shortcuts": shortcuts_created,
+                "storage_account": settings.STORAGE_ACCOUNT_NAME
+            }
+        else:
+            return {
+                "success": False,
+                "error": "No shortcuts were created",
+                "message": "Check if shortcuts already exist or if there are permission issues"
+            }
+
+    except Exception as e:
+        logger.error(f"Error creating blob storage shortcuts: {str(e)}", exc_info=True)
+        return {
+            "success": False,
+            "error": str(e),
+            "message": "An unexpected error occurred while creating shortcuts"
+        }
+
 # Root endpoint
 @app.get("/")
 async def root():
@@ -154,10 +318,10 @@ async def root():
         "name": "Pipeline Builder API",
         "version": "1.0.0",
         "status": "running",
-        "claude_model": config.CLAUDE_MODEL,
-        "azure_openai_model": config.AZURE_OPENAI_DEPLOYMENT,
+        "claude_model": settings.CLAUDE_MODEL,
+        "azure_openai_model": settings.AZURE_OPENAI_DEPLOYMENT,
         "azure_ai_agent_enabled": True,
-        "bing_grounding_enabled": bool(config.BING_GROUNDING_CONNECTION_ID)
+        "bing_grounding_enabled": bool(settings.BING_GROUNDING_CONNECTION_ID)
     }
 
 # Health check
@@ -198,6 +362,140 @@ async def chat_with_ai(request: ChatRequest, user: dict = Depends(validate_token
         # Update conversation context with user message
         conv_context.update_context(user_message)
 
+        # CHECK FOR PENDING CONFIRMATION (Shortcut Creation)
+        pending = conv_context.get_pending_confirmation()
+
+        if pending and pending["action"] == "create_shortcut":
+            # User is responding to shortcut creation confirmation
+            if conv_context.is_user_confirming(user_message):
+                # User confirmed - create shortcuts
+                logger.info("User confirmed shortcut creation. Creating shortcuts...")
+
+                shortcut_result = await create_blob_storage_shortcuts(request.workspace_id)
+
+                conv_context.clear_pending_confirmation()
+
+                if shortcut_result["success"]:
+                    # Store shortcut information in conversation context
+                    conv_context.set_shortcuts(shortcut_result)
+                    logger.info(f"Stored shortcut info in conversation context: {shortcut_result.get('lakehouse_name')}")
+
+                    # Success response
+                    shortcuts_info = "\n".join([
+                        f"  • **{s['name']}** → {s['path']} (container: {s['container']})"
+                        for s in shortcut_result["shortcuts"]
+                    ])
+
+                    # Check if shortcuts already existed or were just created
+                    if shortcut_result.get("already_exists"):
+                        success_message = f"""✅ **Shortcuts Already Set Up!**
+
+Good news! Your lakehouse already has shortcuts configured:
+
+**Storage Account:** {shortcut_result['storage_account']}
+**Lakehouse:** {shortcut_result['lakehouse_name']}
+
+**Available Shortcuts:**
+{shortcuts_info}
+
+Your data is ready to use! Would you like me to help you create a pipeline to process this data?"""
+                    else:
+                        success_message = f"""✅ **Shortcuts Created Successfully!**
+
+I've created OneLake shortcuts for your Azure Blob Storage:
+
+**Storage Account:** {shortcut_result['storage_account']}
+**Lakehouse:** {shortcut_result['lakehouse_name']}
+**Connection:** {shortcut_result.get('connection_name', 'N/A')}
+
+**Shortcuts Created:**
+{shortcuts_info}
+
+You can now access your data directly in the lakehouse! Would you like me to help you create a pipeline to process this data?"""
+
+                    return ChatResponse(
+                        role="assistant",
+                        content=success_message,
+                        suggestions=["Create a pipeline", "Browse the data", "Add transformations"],
+                        pipeline_preview=None,
+                        shortcut_info=shortcut_result,
+                        needs_confirmation=False,
+                        confirmation_action=None
+                    )
+                else:
+                    # Error response
+                    error_message = f"""❌ **Failed to Create Shortcuts**
+
+{shortcut_result.get('message', 'Unknown error')}
+
+Error details: {shortcut_result.get('error', 'None')}
+
+Would you like me to provide manual instructions instead?"""
+
+                    return ChatResponse(
+                        role="assistant",
+                        content=error_message,
+                        suggestions=["Show manual steps", "Try again", "Contact support"],
+                        pipeline_preview=None,
+                        shortcut_info=None,
+                        needs_confirmation=False,
+                        confirmation_action=None
+                    )
+            else:
+                # User declined
+                conv_context.clear_pending_confirmation()
+                logger.info("User declined shortcut creation")
+
+                return ChatResponse(
+                    role="assistant",
+                    content="No problem! Let me know if you'd like to create shortcuts later or if you need help with something else.",
+                    suggestions=None,
+                    pipeline_preview=None,
+                    shortcut_info=None,
+                    needs_confirmation=False,
+                    confirmation_action=None
+                )
+
+        # DETECT BLOB STORAGE MENTION (If not already pending)
+        user_message_lower = user_message.lower()
+        blob_keywords = ["azure blob", "blob storage", "azure storage", "storage account"]
+        blob_detected = any(keyword in user_message_lower for keyword in blob_keywords)
+
+        if blob_detected and not pending:
+            # User mentioned blob storage - suggest shortcut creation
+            logger.info("Blob storage detected in user message. Suggesting shortcut creation...")
+
+            conv_context.set_pending_confirmation("create_shortcut", {
+                "workspace_id": request.workspace_id,
+                "storage_account": settings.STORAGE_ACCOUNT_NAME
+            })
+
+            confirmation_message = f"""🔍 **I detected you want to use Azure Blob Storage!**
+
+I can automatically set up shortcuts for you:
+
+**What I'll Create:**
+1. Connection to your storage account: **{settings.STORAGE_ACCOUNT_NAME}**
+2. Shortcuts in your lakehouse to access:
+   - **bronze** container → `Files/azure_blob_bronze`
+   - **silver** container → `Files/azure_blob_silver`
+
+This will let you access your blob data directly without copying it first.
+
+**Would you like me to proceed?**
+(Reply with "yes", "proceed", or "go ahead" to confirm)"""
+
+            return ChatResponse(
+                role="assistant",
+                content=confirmation_message,
+                suggestions=["Yes, proceed", "No, not now", "Tell me more"],
+                pipeline_preview=None,
+                shortcut_info=None,
+                needs_confirmation=True,
+                confirmation_action="create_shortcut"
+            )
+
+        # NORMAL AI CHAT FLOW (No shortcuts needed)
         # Check if we should proactively search for best practices
         proactive_search_query = conv_context.should_search_for_best_practices()
 
@@ -211,11 +509,8 @@ async def chat_with_ai(request: ChatRequest, user: dict = Depends(validate_token
             messages[-1]["content"] = messages[-1]["content"] + context_summary
 
         # If we detected source and destination, proactively check for latest updates
-        proactive_info = ""
         if proactive_search_query and conv_context.context["current_stage"] == "suggesting":
             logger.info(f"Proactively searching: {proactive_search_query}")
-            # The agent will do this automatically with the new prompt, but we track it
-            proactive_info = f"\n\n🔍 PROACTIVE SEARCH TRIGGERED: {proactive_search_query}"
 
         # Call Azure AI Agent with Bing Grounding
         response = await agent_service.chat(
@@ -234,7 +529,10 @@ async def chat_with_ai(request: ChatRequest, user: dict = Depends(validate_token
             role="assistant",
             content=response["content"],
             suggestions=None,
-            pipeline_preview=None
+            pipeline_preview=None,
+            shortcut_info=None,
+            needs_confirmation=False,
+            confirmation_action=None
         )
 
     except Exception as e:
@@ -300,8 +598,8 @@ async def chat_with_gpt5(request: ChatRequest, user: dict = Depends(validate_tok
         # Call Azure OpenAI with function calling (Bing Search)
         response = await azure_openai_service.chat_with_function_calling(
             messages=messages,
-            max_tokens=config.AZURE_OPENAI_MAX_TOKENS,
-            temperature=config.AZURE_OPENAI_TEMPERATURE,
+            max_tokens=settings.AZURE_OPENAI_MAX_TOKENS,
+            temperature=settings.AZURE_OPENAI_TEMPERATURE,
             enable_search=True
         )
 
@@ -343,8 +641,8 @@ async def simple_chat_with_gpt5(request: ChatRequest, user: dict = Depends(valid
         # Call Azure OpenAI without function calling
         response = await azure_openai_service.simple_chat(
             messages=messages,
-            max_tokens=config.AZURE_OPENAI_MAX_TOKENS,
-            temperature=config.AZURE_OPENAI_TEMPERATURE
+            max_tokens=settings.AZURE_OPENAI_MAX_TOKENS,
+            temperature=settings.AZURE_OPENAI_TEMPERATURE
         )
 
         return {
@@ -1064,6 +1362,97 @@ async def create_linked_service(request: LinkedServiceRequest, user: dict = Depe
             linked_service_name=request.linked_service_name,
             source_type=request.source_type,
             error=str(e)
+        )
+
+@app.post("/api/pipelines/generate-file-processing", response_model=FileProcessingPipelineResponse)
+async def generate_file_processing_pipeline(request: FileProcessingPipelineRequest, user: dict = Depends(validate_token)):
+    """
+    Generate complete file processing pipeline with incremental loading pattern
+
+    This creates a pipeline that:
+    1. Gets all files from Azure Blob Storage shortcut
+    2. Queries fileprocessed table via SQL endpoint to get already processed files
+    3. Filters to only new files
+    4. Processes each new file and updates fileprocessed table
+    """
+    try:
+        logger.info(f"Generating file processing pipeline: {request.pipeline_name}")
+        logger.info(f"Workspace: {request.workspace_id}, Lakehouse: {request.lakehouse_id}")
+
+        # Generate the complete pipeline JSON
+        result = await fabric_service.generate_file_processing_pipeline(
+            workspace_id=request.workspace_id,
+            lakehouse_id=request.lakehouse_id,
+            pipeline_name=request.pipeline_name,
+            source_container=request.source_container,
+            bronze_shortcut_name=request.bronze_shortcut_name
+        )
+
+        if not result["success"]:
+            logger.error(f"Pipeline generation failed: {result.get('error')}")
+            return FileProcessingPipelineResponse(
+                success=False,
+                pipeline_name=request.pipeline_name,
+                error=result.get("error"),
+                message="Failed to generate pipeline"
+            )
+
+        pipeline_json = result["pipeline_json"]
+
+        # If deploy_immediately is True, deploy the pipeline
+        if request.deploy_immediately:
+            logger.info(f"Deploying pipeline immediately: {request.pipeline_name}")
+
+            deploy_result = await fabric_service.create_pipeline(
+                workspace_id=request.workspace_id,
+                pipeline_name=request.pipeline_name,
+                pipeline_definition=pipeline_json
+            )
+
+            if deploy_result["success"]:
+                logger.info(f"Pipeline deployed successfully: {deploy_result.get('pipeline_id')}")
+                return FileProcessingPipelineResponse(
+                    success=True,
+                    pipeline_name=request.pipeline_name,
+                    pipeline_id=deploy_result.get("pipeline_id"),
+                    lakehouse_name=result.get("lakehouse_name"),
+                    sql_endpoint=result.get("sql_endpoint"),
+                    activities_count=result.get("activities_count"),
+                    pipeline_json=pipeline_json,
+                    message=f"Pipeline generated and deployed successfully with {result.get('activities_count')} activities"
+                )
+            else:
+                logger.error(f"Pipeline deployment failed: {deploy_result.get('error')}")
+                return FileProcessingPipelineResponse(
+                    success=True,
+                    pipeline_name=request.pipeline_name,
+                    lakehouse_name=result.get("lakehouse_name"),
+                    sql_endpoint=result.get("sql_endpoint"),
+                    activities_count=result.get("activities_count"),
+                    pipeline_json=pipeline_json,
+                    error=f"Pipeline generated but deployment failed: {deploy_result.get('error')}",
+                    message="Pipeline generated successfully but deployment failed"
+                )
+        else:
+            # Just return the pipeline JSON for preview
+            logger.info(f"Pipeline generated successfully: {request.pipeline_name}")
+            return FileProcessingPipelineResponse(
+                success=True,
+                pipeline_name=request.pipeline_name,
+                lakehouse_name=result.get("lakehouse_name"),
+                sql_endpoint=result.get("sql_endpoint"),
+                activities_count=result.get("activities_count"),
+                pipeline_json=pipeline_json,
+                message=f"Pipeline generated successfully with {result.get('activities_count')} activities. Set deploy_immediately=true to deploy."
+            )
+
+    except Exception as e:
+        logger.error(f"Error generating file processing pipeline: {str(e)}", exc_info=True)
+        return FileProcessingPipelineResponse(
+            success=False,
+            pipeline_name=request.pipeline_name,
+            error=str(e),
+            message="Pipeline generation failed"
         )
 
 if __name__ == "__main__":

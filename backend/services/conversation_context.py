@@ -35,7 +35,16 @@ class ConversationContext:
             "current_stage": "initial",  # "initial", "gathering_requirements", "suggesting", "building", "ready_to_deploy"
             "suggestions_made": [],
             "user_preferences": {},
-            "conversation_history": []
+            "conversation_history": [],
+            "pending_confirmation": None,  # Action waiting for confirmation: "create_shortcut", etc.
+            "confirmation_data": {},  # Data needed to execute the pending action
+            "shortcuts": {  # Information about OneLake shortcuts
+                "bronze_path": None,  # e.g., "Files/bronze"
+                "silver_path": None,  # e.g., "Files/silver"
+                "lakehouse_id": None,
+                "lakehouse_name": None,
+                "storage_account": None
+            }
         }
 
     def extract_intent_from_message(self, message: str) -> Dict[str, Any]:
@@ -206,7 +215,7 @@ class ConversationContext:
         """
         Format context as additional system message for the agent
         """
-        if not self.context["source"]["type"] and not self.context["destination"]["type"]:
+        if not self.context["source"]["type"] and not self.context["destination"]["type"] and not self.has_shortcuts():
             return ""
 
         context_msg = "\n\n## 📋 CURRENT PIPELINE CONTEXT\n"
@@ -214,6 +223,18 @@ class ConversationContext:
 
         if self.context["current_stage"] == "suggesting":
             context_msg += "\n⚡ ACTION: Proactively search for best practices and suggest optimizations!\n"
+
+        # Add shortcut information if available
+        if self.has_shortcuts():
+            context_msg += "\n\n## 🔗 LAKEHOUSE SHORTCUTS AVAILABLE\n"
+            context_msg += f"Lakehouse: {self.context['shortcuts']['lakehouse_name']}\n"
+            if self.context['shortcuts']['bronze_path']:
+                context_msg += f"  • Bronze data: {self.context['shortcuts']['bronze_path']}\n"
+            if self.context['shortcuts']['silver_path']:
+                context_msg += f"  • Silver data: {self.context['shortcuts']['silver_path']}\n"
+            context_msg += f"Storage Account: {self.context['shortcuts']['storage_account']}\n"
+            context_msg += "\n⚠️ IMPORTANT: When generating pipelines, use these lakehouse paths directly.\n"
+            context_msg += "DO NOT create blob storage connections. Use LakehouseFiles as source type.\n"
 
         return context_msg
 
@@ -234,6 +255,96 @@ class ConversationContext:
             "timestamp": datetime.utcnow().isoformat(),
             "suggestion": suggestion
         })
+
+    def set_pending_confirmation(self, action: str, data: Dict[str, Any]):
+        """
+        Set a pending action that needs user confirmation
+
+        Args:
+            action: Action type (e.g., "create_shortcut")
+            data: Data needed to execute the action
+        """
+        self.context["pending_confirmation"] = action
+        self.context["confirmation_data"] = data
+
+    def get_pending_confirmation(self) -> Optional[Dict[str, Any]]:
+        """
+        Get pending confirmation details
+
+        Returns:
+            Dict with 'action' and 'data' or None if no pending confirmation
+        """
+        if self.context["pending_confirmation"]:
+            return {
+                "action": self.context["pending_confirmation"],
+                "data": self.context["confirmation_data"]
+            }
+        return None
+
+    def clear_pending_confirmation(self):
+        """
+        Clear pending confirmation after user responds
+        """
+        self.context["pending_confirmation"] = None
+        self.context["confirmation_data"] = {}
+
+    def is_user_confirming(self, message: str) -> bool:
+        """
+        Check if user message is confirming the pending action
+
+        Returns:
+            True if user is saying yes/confirmed, False otherwise
+        """
+        message_lower = message.lower().strip()
+
+        # Positive confirmations
+        positive = ["yes", "yeah", "yep", "sure", "ok", "okay", "proceed", "go ahead",
+                    "confirm", "confirmed", "do it", "please", "👍", "✓", "✅"]
+
+        return any(word in message_lower for word in positive)
+
+    def set_shortcuts(self, shortcuts_info: Dict[str, Any]):
+        """
+        Store shortcut information in context
+
+        Args:
+            shortcuts_info: Dict containing shortcut details
+                - lakehouse_name: Name of lakehouse
+                - lakehouse_id: ID of lakehouse
+                - storage_account: Storage account name
+                - shortcuts: List of shortcuts with name, container, path
+        """
+        self.context["shortcuts"]["lakehouse_name"] = shortcuts_info.get("lakehouse_name")
+        self.context["shortcuts"]["lakehouse_id"] = shortcuts_info.get("lakehouse_id")
+        self.context["shortcuts"]["storage_account"] = shortcuts_info.get("storage_account")
+
+        # Extract bronze and silver paths from shortcuts list
+        for shortcut in shortcuts_info.get("shortcuts", []):
+            if "bronze" in shortcut.get("name", "").lower():
+                self.context["shortcuts"]["bronze_path"] = shortcut.get("path", "Files/bronze")
+            elif "silver" in shortcut.get("name", "").lower():
+                self.context["shortcuts"]["silver_path"] = shortcut.get("path", "Files/silver")
+
+    def has_shortcuts(self) -> bool:
+        """
+        Check if shortcut information is available
+
+        Returns:
+            True if shortcuts are configured, False otherwise
+        """
+        return (
+            self.context["shortcuts"]["bronze_path"] is not None or
+            self.context["shortcuts"]["silver_path"] is not None
+        )
+
+    def get_shortcuts(self) -> Dict[str, Any]:
+        """
+        Get shortcut information
+
+        Returns:
+            Dict with shortcut details
+        """
+        return self.context["shortcuts"]
 
 
 class ConversationContextManager:

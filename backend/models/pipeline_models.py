@@ -108,6 +108,9 @@ class ChatResponse(BaseModel):
     content: str
     suggestions: Optional[List[str]] = None
     pipeline_preview: Optional[Dict[str, Any]] = None
+    shortcut_info: Optional[Dict[str, Any]] = None  # Info about created shortcuts
+    needs_confirmation: Optional[bool] = None  # Flag if waiting for user confirmation
+    confirmation_action: Optional[str] = None  # What action needs confirmation (e.g., "create_shortcut")
 
 class NotebookCode(BaseModel):
     notebook_name: str
@@ -289,3 +292,24 @@ class AutomatedPipelineGenerateResponse(BaseModel):
     # Error handling
     error: Optional[str] = None
     manual_instructions: Optional[str] = None  # Fallback manual instructions if automation fails
+
+class FileProcessingPipelineRequest(BaseModel):
+    """Request for generating file processing pipeline with incremental loading"""
+    workspace_id: str
+    lakehouse_id: str
+    pipeline_name: str
+    source_container: str  # "bronze" or "silver"
+    bronze_shortcut_name: Optional[str] = "azure_blob_bronze"
+    deploy_immediately: Optional[bool] = False
+
+class FileProcessingPipelineResponse(BaseModel):
+    """Response for file processing pipeline generation"""
+    success: bool
+    pipeline_name: str
+    pipeline_id: Optional[str] = None
+    lakehouse_name: Optional[str] = None
+    sql_endpoint: Optional[str] = None
+    activities_count: Optional[int] = None
+    pipeline_json: Optional[Dict[str, Any]] = None
+    error: Optional[str] = None
+    message: Optional[str] = None
