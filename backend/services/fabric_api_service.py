@@ -3,9 +3,9 @@ Microsoft Fabric API Service for deploying pipelines and notebooks
 """
 import httpx
 import logging
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 import json
-import config
+import settings
 
 logger = logging.getLogger(__name__)
 
@@ -16,9 +16,9 @@ class FabricAPIService:
 
     def __init__(self):
         self.base_url = "https://api.fabric.microsoft.com/v1"
-        self.client_id = config.FABRIC_CLIENT_ID
-        self.client_secret = config.FABRIC_CLIENT_SECRET
-        self.tenant_id = config.FABRIC_TENANT_ID
+        self.client_id = settings.FABRIC_CLIENT_ID
+        self.client_secret = settings.FABRIC_CLIENT_SECRET
+        self.tenant_id = settings.FABRIC_TENANT_ID
         self.access_token = None
 
     async def get_access_token(self) -> str:
@@ -77,6 +77,848 @@ class FabricAPIService:
         except Exception as e:
             logger.error(f"Error fetching workspaces from Fabric API: {str(e)}")
             raise
+
+    async def get_workspace_lakehouses(self, workspace_id: str) -> List[Dict[str, Any]]:
+        """
+        Get all lakehouses in a workspace
+
+        Args:
+            workspace_id: Fabric workspace ID
+
+        Returns:
+            List of lakehouse dictionaries with id, displayName, type
+        """
+        try:
+            token = await self.get_access_token()
+
+            headers = {
+                "Authorization": f"Bearer {token}",
+                "Content-Type": "application/json"
+            }
+
+            # Get all items in workspace filtered by Lakehouse type
+            list_url = f"{self.base_url}/workspaces/{workspace_id}/items?type=Lakehouse"
+
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                response = await client.get(list_url, headers=headers)
+
+                if response.status_code == 200:
+                    data = response.json()
+                    lakehouses = data.get("value", [])
+                    logger.info(f"Found {len(lakehouses)} lakehouse(s) in workspace {workspace_id}")
+                    return lakehouses
+                else:
+                    logger.error(f"Error fetching lakehouses: {response.status_code} - {response.text}")
+                    return []
+
+        except Exception as e:
+            logger.error(f"Error fetching lakehouses from workspace: {str(e)}")
+            return []
+
+    async def get_lakehouse_shortcuts(self, workspace_id: str, lakehouse_id: str) -> Dict[str, Any]:
+        """
+        Get all shortcuts in a lakehouse
+
+        Args:
+            workspace_id: Fabric workspace ID
+            lakehouse_id: Lakehouse ID
+
+        Returns:
+            Dict with success status and list of shortcuts
+        """
+        try:
+            token = await self.get_access_token()
+
+            headers = {
+                "Authorization": f"Bearer {token}",
+                "Content-Type": "application/json"
+            }
+
+            # Get shortcuts from lakehouse
+            shortcuts_url = f"{self.base_url}/workspaces/{workspace_id}/items/{lakehouse_id}/shortcuts"
+
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                response = await client.get(shortcuts_url, headers=headers)
+
+                if response.status_code == 200:
+                    shortcuts_data = response.json()
+                    shortcuts = shortcuts_data.get("value", [])
+
+                    logger.info(f"Found {len(shortcuts)} shortcut(s) in lakehouse")
+
+                    return {
+                        "success": True,
+                        "shortcuts": shortcuts,
+                        "count": len(shortcuts)
+                    }
+                else:
+                    logger.warning(f"Could not fetch shortcuts: {response.status_code} - {response.text}")
+                    return {
+                        "success": False,
+                        "shortcuts": [],
+                        "error": f"Failed to fetch shortcuts: {response.status_code}"
+                    }
+
+        except Exception as e:
+            logger.error(f"Error fetching lakehouse shortcuts: {str(e)}")
+            return {
+                "success": False,
+                "shortcuts": [],
+                "error": str(e)
+            }
+
+    async def get_lakehouse_sql_endpoint(self, workspace_id: str, lakehouse_id: str) -> Dict[str, Any]:
+        """
+        Get Lakehouse SQL endpoint connection string
+
+        Args:
+            workspace_id: Fabric workspace ID
+            lakehouse_id: Lakehouse ID
+
+        Returns:
+            Dict with SQL endpoint details
+        """
+        try:
+            token = await self.get_access_token()
+
+            headers = {
+                "Authorization": f"Bearer {token}",
+                "Content-Type": "application/json"
+            }
+
+            # Get lakehouse details
+            details_url = f"{self.base_url}/workspaces/{workspace_id}/lakehouses/{lakehouse_id}"
+
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                response = await client.get(details_url, headers=headers)
+
+                if response.status_code == 200:
+                    lakehouse_data = response.json()
+                    lakehouse_name = lakehouse_data.get("displayName", "")
+
+                    # Construct SQL endpoint connection string
+                    # Format: Server={workspace-id}.datawarehouse.fabric.microsoft.com;Initial Catalog={lakehouse-name}
+                    sql_endpoint = f"{workspace_id}.datawarehouse.fabric.microsoft.com"
+
+                    connection_string = (
+                        f"Server={sql_endpoint};"
+                        f"Initial Catalog={lakehouse_name};"
+                        f"Authentication=Active Directory Service Principal;"
+                        f"User ID={self.client_id};"
+                        f"Password={self.client_secret};"
+                        f"Encrypt=True;"
+                    )
+
+                    logger.info(f"Generated SQL endpoint for lakehouse: {lakehouse_name}")
+
+                    return {
+                        "success": True,
+                        "lakehouse_name": lakehouse_name,
+                        "lakehouse_id": lakehouse_id,
+                        "sql_endpoint": sql_endpoint,
+                        "connection_string": connection_string
+                    }
+                else:
+                    logger.error(f"Error fetching lakehouse details: {response.status_code} - {response.text}")
+                    return {
+                        "success": False,
+                        "error": f"Failed to get lakehouse details: {response.text}"
+                    }
+
+        except Exception as e:
+            logger.error(f"Error getting lakehouse SQL endpoint: {str(e)}")
+            return {
+                "success": False,
+                "error": str(e)
+            }
+
+    async def create_lakehouse_table(
+        self,
+        workspace_id: str,
+        lakehouse_id: str,
+        table_name: str,
+        schema: List[Dict[str, str]]
+    ) -> Dict[str, Any]:
+        """
+        Create a table in Lakehouse by loading initial data structure
+
+        Args:
+            workspace_id: Fabric workspace ID
+            lakehouse_id: Lakehouse ID
+            table_name: Name of table to create
+            schema: List of column definitions [{"name": "col1", "type": "string"}, ...]
+
+        Returns:
+            Dict with success status and details
+        """
+        try:
+            token = await self.get_access_token()
+
+            headers = {
+                "Authorization": f"Bearer {token}",
+                "Content-Type": "application/json"
+            }
+
+            # Create table by loading from an empty/initial file structure
+            # Note: In Fabric, tables are typically created via Spark/SQL
+            # This method prepares for table creation
+
+            logger.info(f"Table '{table_name}' structure prepared with schema: {schema}")
+
+            # Return info for Script activity to create table via SQL
+            return {
+                "success": True,
+                "table_name": table_name,
+                "schema": schema,
+                "create_sql": self._generate_create_table_sql(table_name, schema),
+                "message": "Use Script activity with SQL endpoint to create table"
+            }
+
+        except Exception as e:
+            logger.error(f"Error preparing table creation: {str(e)}")
+            return {
+                "success": False,
+                "error": str(e)
+            }
+
+    def _generate_create_table_sql(self, table_name: str, schema: List[Dict[str, str]]) -> str:
+        """
+        Generate CREATE TABLE SQL statement
+
+        Args:
+            table_name: Table name
+            schema: Column definitions
+
+        Returns:
+            SQL CREATE TABLE statement
+        """
+        columns = []
+        for col in schema:
+            col_name = col.get("name")
+            col_type = col.get("type", "STRING")
+            columns.append(f"    {col_name} {col_type}")
+
+        columns_sql = ",\n".join(columns)
+
+        sql = f"""CREATE TABLE IF NOT EXISTS {table_name} (
+{columns_sql}
+);"""
+
+        return sql
+
+    def _generate_script_activity(
+        self,
+        activity_name: str,
+        sql_query: str,
+        database: str = None,
+        connection_id: str = None,
+        sql_connection_string: str = None,
+        depends_on: Optional[List[str]] = None
+    ) -> Dict[str, Any]:
+        """
+        Generate Script activity with SQL endpoint connection
+
+        Args:
+            activity_name: Name of the Script activity
+            sql_query: SQL query to execute (can be Expression type)
+            database: Database name (optional)
+            connection_id: Connection ID for externalReferences (modern approach)
+            sql_connection_string: SQL endpoint connection string (legacy approach)
+            depends_on: List of activity names this depends on
+
+        Returns:
+            Script activity JSON definition
+        """
+        # Handle both string queries and Expression objects
+        if isinstance(sql_query, str):
+            sql_text = sql_query
+        elif isinstance(sql_query, dict) and "value" in sql_query:
+            sql_text = sql_query  # Already in Expression format
+        else:
+            sql_text = sql_query
+
+        activity = {
+            "name": activity_name,
+            "type": "Script",
+            "dependsOn": self._format_depends_on(depends_on) if depends_on else [],
+            "policy": {
+                "timeout": "0.12:00:00",
+                "retry": 0,
+                "retryIntervalInSeconds": 30,
+                "secureOutput": False,
+                "secureInput": False
+            },
+            "typeProperties": {
+                "scripts": [
+                    {
+                        "type": "Query",
+                        "text": sql_text if isinstance(sql_text, dict) else {
+                            "value": sql_text,
+                            "type": "Expression"
+                        }
+                    }
+                ],
+                "scriptBlockExecutionTimeout": "02:00:00"
+            }
+        }
+
+        # Add database if provided
+        if database:
+            activity["typeProperties"]["database"] = database
+
+        # Use externalReferences if connection_id provided (modern approach)
+        if connection_id:
+            activity["externalReferences"] = {
+                "connection": connection_id
+            }
+        # Fall back to linkedService if connection string provided (legacy)
+        elif sql_connection_string:
+            activity["typeProperties"]["linkedService"] = {
+                "referenceName": "SQLEndpointConnection",
+                "type": "LinkedServiceReference",
+                "parameters": {
+                    "connectionString": sql_connection_string
+                }
+            }
+
+        return activity
+
+    def _generate_get_metadata_activity(
+        self,
+        activity_name: str,
+        dataset_config: Dict[str, Any] = None,
+        dataset_name: str = None,
+        depends_on: Optional[List[str]] = None
+    ) -> Dict[str, Any]:
+        """
+        Generate Get Metadata activity with support for both dataset reference and inline dataset settings
+
+        Args:
+            activity_name: Name of the activity
+            dataset_config: Inline dataset configuration (for Lakehouse, blob, etc.)
+            dataset_name: Name of the dataset to reference (legacy support)
+            depends_on: List of activity names this depends on
+
+        Returns:
+            Get Metadata activity JSON definition
+        """
+        activity = {
+            "name": activity_name,
+            "type": "GetMetadata",
+            "dependsOn": self._format_depends_on(depends_on) if depends_on else [],
+            "policy": {
+                "timeout": "0.12:00:00",
+                "retry": 0,
+                "retryIntervalInSeconds": 30,
+                "secureOutput": False,
+                "secureInput": False
+            },
+            "typeProperties": {
+                "fieldList": ["childItems"]
+            }
+        }
+
+        # Use inline datasetSettings if provided (modern approach for Lakehouse)
+        if dataset_config:
+            activity["typeProperties"]["datasetSettings"] = dataset_config
+            activity["typeProperties"]["storeSettings"] = {
+                "type": "LakehouseReadSettings",
+                "recursive": True,
+                "enablePartitionDiscovery": False
+            }
+            activity["typeProperties"]["formatSettings"] = {
+                "type": "DelimitedTextReadSettings"
+            }
+        # Fall back to dataset reference (legacy approach)
+        elif dataset_name:
+            activity["typeProperties"]["dataset"] = {
+                "referenceName": dataset_name,
+                "type": "DatasetReference"
+            }
+            activity["typeProperties"]["storeSettings"] = {
+                "type": "AzureBlobStorageReadSettings",
+                "recursive": True,
+                "enablePartitionDiscovery": False
+            }
+
+        return activity
+
+    def _generate_set_variable_activity(
+        self,
+        activity_name: str,
+        variable_name: str,
+        value: Any,
+        depends_on: Optional[List[str]] = None
+    ) -> Dict[str, Any]:
+        """
+        Generate Set Variable activity
+
+        Args:
+            activity_name: Name of the activity
+            variable_name: Variable to set
+            value: Value to set (can be expression)
+            depends_on: List of activity names this depends on
+
+        Returns:
+            Set Variable activity JSON definition
+        """
+        activity = {
+            "name": activity_name,
+            "type": "SetVariable",
+            "dependsOn": depends_on or [],
+            "policy": {
+                "secureOutput": False,
+                "secureInput": False
+            },
+            "typeProperties": {
+                "variableName": variable_name,
+                "value": value
+            }
+        }
+        return activity
+
+    def _generate_filter_activity(
+        self,
+        activity_name: str,
+        items_expression: str,
+        condition_expression: str,
+        depends_on: Optional[List[str]] = None
+    ) -> Dict[str, Any]:
+        """
+        Generate Filter activity
+
+        Args:
+            activity_name: Name of the activity
+            items_expression: Expression for items to filter (e.g., "@activity('GetMetadata').output.childItems")
+            condition_expression: Filter condition expression
+            depends_on: List of activity names this depends on
+
+        Returns:
+            Filter activity JSON definition
+        """
+        activity = {
+            "name": activity_name,
+            "type": "Filter",
+            "dependsOn": depends_on or [],
+            "typeProperties": {
+                "items": {
+                    "value": items_expression,
+                    "type": "Expression"
+                },
+                "condition": {
+                    "value": condition_expression,
+                    "type": "Expression"
+                }
+            }
+        }
+        return activity
+
+    def _generate_foreach_activity(
+        self,
+        activity_name: str,
+        items_expression: str,
+        activities: List[Dict[str, Any]],
+        is_sequential: bool = False,
+        depends_on: Optional[List[str]] = None
+    ) -> Dict[str, Any]:
+        """
+        Generate ForEach activity
+
+        Args:
+            activity_name: Name of the activity
+            items_expression: Expression for items to iterate (e.g., "@activity('Filter').output.value")
+            activities: List of nested activities inside ForEach
+            is_sequential: Execute sequentially (True) or in parallel (False)
+            depends_on: List of activity names this depends on
+
+        Returns:
+            ForEach activity JSON definition
+        """
+        activity = {
+            "name": activity_name,
+            "type": "ForEach",
+            "dependsOn": depends_on or [],
+            "typeProperties": {
+                "items": {
+                    "value": items_expression,
+                    "type": "Expression"
+                },
+                "isSequential": is_sequential,
+                "activities": activities
+            }
+        }
+        return activity
+
+    def _generate_trident_notebook_activity(
+        self,
+        activity_name: str,
+        notebook_id: str,
+        workspace_id: str,
+        parameters: Dict[str, Any] = None,
+        depends_on: Optional[List[str]] = None
+    ) -> Dict[str, Any]:
+        """
+        Generate TridentNotebook activity (Fabric Notebook execution)
+
+        Args:
+            activity_name: Name of the activity
+            notebook_id: ID of the notebook to execute
+            workspace_id: Workspace ID where notebook exists
+            parameters: Parameters to pass to notebook
+            depends_on: List of activity names this depends on
+
+        Returns:
+            TridentNotebook activity JSON definition
+        """
+        activity = {
+            "name": activity_name,
+            "type": "TridentNotebook",
+            "dependsOn": self._format_depends_on(depends_on) if depends_on else [],
+            "policy": {
+                "timeout": "0.12:00:00",
+                "retry": 0,
+                "retryIntervalInSeconds": 30,
+                "secureOutput": False,
+                "secureInput": False
+            },
+            "typeProperties": {
+                "notebookId": notebook_id,
+                "workspaceId": workspace_id
+            }
+        }
+
+        # Add parameters if provided
+        if parameters:
+            activity["typeProperties"]["parameters"] = parameters
+
+        return activity
+
+    def _generate_if_condition_activity(
+        self,
+        activity_name: str,
+        condition_expression: str,
+        if_true_activities: List[Dict[str, Any]],
+        if_false_activities: List[Dict[str, Any]] = None,
+        depends_on: Optional[List[str]] = None
+    ) -> Dict[str, Any]:
+        """
+        Generate IfCondition activity
+
+        Args:
+            activity_name: Name of the activity
+            condition_expression: Expression to evaluate (e.g., "@bool(...)")
+            if_true_activities: Activities to execute when condition is true
+            if_false_activities: Activities to execute when condition is false
+            depends_on: List of activity names this depends on
+
+        Returns:
+            IfCondition activity JSON definition
+        """
+        activity = {
+            "name": activity_name,
+            "type": "IfCondition",
+            "dependsOn": self._format_depends_on(depends_on) if depends_on else [],
+            "typeProperties": {
+                "expression": {
+                    "value": condition_expression,
+                    "type": "Expression"
+                },
+                "ifTrueActivities": if_true_activities
+            }
+        }
+
+        # Add false activities if provided
+        if if_false_activities:
+            activity["typeProperties"]["ifFalseActivities"] = if_false_activities
+
+        return activity
+
+    def _generate_office365_email_activity(
+        self,
+        activity_name: str,
+        to_email: str,
+        subject: str,
+        body: str,
+        connection_id: str,
+        depends_on: Optional[List[str]] = None
+    ) -> Dict[str, Any]:
+        """
+        Generate Office365Email activity
+
+        Args:
+            activity_name: Name of the activity
+            to_email: Recipient email address
+            subject: Email subject
+            body: Email body (can include expressions)
+            connection_id: Office365 connection ID
+            depends_on: List of activity names this depends on
+
+        Returns:
+            Office365Email activity JSON definition
+        """
+        activity = {
+            "name": activity_name,
+            "type": "Office365Email",
+            "dependsOn": self._format_depends_on(depends_on) if depends_on else [],
+            "policy": {
+                "timeout": "0.12:00:00",
+                "retry": 0,
+                "retryIntervalInSeconds": 30,
+                "secureOutput": False,
+                "secureInput": False
+            },
+            "typeProperties": {
+                "to": to_email,
+                "subject": subject,
+                "body": body
+            },
+            "externalReferences": {
+                "connection": connection_id
+            }
+        }
+        return activity
+
+    def _generate_refresh_dataflow_activity(
+        self,
+        activity_name: str,
+        dataflow_id: str,
+        workspace_id: str,
+        notify_option: str = "NoNotification",
+        depends_on: Optional[List[str]] = None
+    ) -> Dict[str, Any]:
+        """
+        Generate RefreshDataflow activity (Dataflow Gen2)
+
+        Args:
+            activity_name: Name of the activity
+            dataflow_id: ID of the dataflow to refresh
+            workspace_id: Workspace ID where dataflow exists
+            notify_option: Notification option ("NoNotification", "OnCompletion", "OnFailure")
+            depends_on: List of activity names this depends on
+
+        Returns:
+            RefreshDataflow activity JSON definition
+        """
+        activity = {
+            "name": activity_name,
+            "type": "RefreshDataflow",
+            "dependsOn": self._format_depends_on(depends_on) if depends_on else [],
+            "policy": {
+                "timeout": "0.12:00:00",
+                "retry": 0,
+                "retryIntervalInSeconds": 30,
+                "secureOutput": False,
+                "secureInput": False
+            },
+            "typeProperties": {
+                "dataflowId": dataflow_id,
+                "workspaceId": workspace_id,
+                "notifyOption": notify_option,
+                "dataflowType": "DataflowFabric"
+            }
+        }
+        return activity
+
+    async def generate_file_processing_pipeline(
+        self,
+        workspace_id: str,
+        lakehouse_id: str,
+        pipeline_name: str,
+        source_container: str,
+        bronze_shortcut_name: str = "azure_blob_bronze"
+    ) -> Dict[str, Any]:
+        """
+        Generate complete file processing pipeline with incremental loading
+
+        Args:
+            workspace_id: Fabric workspace ID
+            lakehouse_id: Lakehouse ID
+            pipeline_name: Name of the pipeline
+            source_container: Source container name (e.g., "bronze")
+            bronze_shortcut_name: Name of the OneLake shortcut to bronze container
+
+        Returns:
+            Complete pipeline JSON definition
+        """
+        try:
+            # Get SQL endpoint for the lakehouse
+            sql_endpoint_result = await self.get_lakehouse_sql_endpoint(workspace_id, lakehouse_id)
+
+            if not sql_endpoint_result["success"]:
+                return {
+                    "success": False,
+                    "error": "Failed to get SQL endpoint"
+                }
+
+            connection_string = sql_endpoint_result["connection_string"]
+            lakehouse_name = sql_endpoint_result["lakehouse_name"]
+
+            # SQL query to get processed files
+            get_processed_files_sql = """
+            SELECT filename
+            FROM fileprocessed
+            WHERE file_status = 'Done'
+            """
+
+            # Pipeline variables
+            variables = {
+                "ProcessedFiles": {
+                    "type": "Array",
+                    "defaultValue": []
+                },
+                "NewFiles": {
+                    "type": "Array",
+                    "defaultValue": []
+                }
+            }
+
+            # Activity 1: Get Metadata - retrieve all files from bronze container
+            get_metadata_activity = self._generate_get_metadata_activity(
+                activity_name="GetMetadata",
+                dataset_name=f"{bronze_shortcut_name}_dataset"
+            )
+
+            # Activity 2: Script - get processed file names from fileprocessed table
+            script_activity = self._generate_script_activity(
+                activity_name="GetProcessedFileNames",
+                sql_query=get_processed_files_sql,
+                sql_connection_string=connection_string,
+                depends_on=[{"activity": "GetMetadata", "dependencyConditions": ["Succeeded"]}]
+            )
+
+            # Activity 3: Set Variable - initialize empty array for new files
+            set_variable_activity = self._generate_set_variable_activity(
+                activity_name="SetEmptyFileArray",
+                variable_name="NewFiles",
+                value={"value": "[]", "type": "Expression"},
+                depends_on=[{"activity": "GetProcessedFileNames", "dependencyConditions": ["Succeeded"]}]
+            )
+
+            # Activity 4: ForEach 1 - loop through all files and build new files array
+            # Inside ForEach: Set variable to append new files
+            foreach1_nested_activity = self._generate_set_variable_activity(
+                activity_name="AppendNewFile",
+                variable_name="NewFiles",
+                value={
+                    "value": "@if(contains(variables('ProcessedFiles'), item().name), variables('NewFiles'), union(variables('NewFiles'), createArray(item())))",
+                    "type": "Expression"
+                }
+            )
+
+            foreach1_activity = self._generate_foreach_activity(
+                activity_name="ForEach1",
+                items_expression="@activity('GetMetadata').output.childItems",
+                activities=[foreach1_nested_activity],
+                is_sequential=False,
+                depends_on=[{"activity": "SetEmptyFileArray", "dependencyConditions": ["Succeeded"]}]
+            )
+
+            # Activity 5: Filter - filter only new files
+            filter_activity = self._generate_filter_activity(
+                activity_name="FilterNewFiles",
+                items_expression="@activity('GetMetadata').output.childItems",
+                condition_expression="@not(contains(activity('GetProcessedFileNames').output.resultSets[0].rows, item().name))",
+                depends_on=[{"activity": "ForEach1", "dependencyConditions": ["Succeeded"]}]
+            )
+
+            # Activity 6: ForEach 2 - process each new file
+            # Nested activities: Copy activity, Condition activity, etc.
+            copy_activity = {
+                "name": "CopyFileToLakehouse",
+                "type": "Copy",
+                "dependsOn": [],
+                "policy": {
+                    "timeout": "0.12:00:00",
+                    "retry": 0,
+                    "retryIntervalInSeconds": 30
+                },
+                "typeProperties": {
+                    "source": {
+                        "type": "BinarySource",
+                        "storeSettings": {
+                            "type": "AzureBlobStorageReadSettings",
+                            "recursive": True
+                        }
+                    },
+                    "sink": {
+                        "type": "BinarySink",
+                        "storeSettings": {
+                            "type": "LakehouseWriteSettings"
+                        }
+                    },
+                    "enableStaging": False
+                }
+            }
+
+            # Condition activity to check copy success
+            condition_activity = {
+                "name": "CheckCopyStatus",
+                "type": "IfCondition",
+                "dependsOn": [{"activity": "CopyFileToLakehouse", "dependencyConditions": ["Succeeded"]}],
+                "typeProperties": {
+                    "expression": {
+                        "value": "@equals(activity('CopyFileToLakehouse').Status, 'Succeeded')",
+                        "type": "Expression"
+                    },
+                    "ifTrueActivities": [
+                        self._generate_script_activity(
+                            activity_name="MarkFileAsProcessed",
+                            sql_query=f"INSERT INTO fileprocessed (filename, file_status) VALUES ('@{{item().name}}', 'Done')",
+                            sql_connection_string=connection_string
+                        )
+                    ],
+                    "ifFalseActivities": [
+                        self._generate_script_activity(
+                            activity_name="MarkFileAsFailed",
+                            sql_query=f"INSERT INTO fileprocessed (filename, file_status) VALUES ('@{{item().name}}', 'Failed')",
+                            sql_connection_string=connection_string
+                        )
+                    ]
+                }
+            }
+
+            foreach2_activity = self._generate_foreach_activity(
+                activity_name="ForEach2",
+                items_expression="@activity('FilterNewFiles').output.value",
+                activities=[copy_activity, condition_activity],
+                is_sequential=True,
+                depends_on=[{"activity": "FilterNewFiles", "dependencyConditions": ["Succeeded"]}]
+            )
+
+            # Build complete pipeline JSON
+            pipeline_json = {
+                "properties": {
+                    "activities": [
+                        get_metadata_activity,
+                        script_activity,
+                        set_variable_activity,
+                        foreach1_activity,
+                        filter_activity,
+                        foreach2_activity
+                    ],
+                    "variables": variables,
+                    "annotations": [],
+                    "lastPublishTime": None
+                }
+            }
+
+            logger.info(f"Generated file processing pipeline: {pipeline_name}")
+
+            return {
+                "success": True,
+                "pipeline_name": pipeline_name,
+                "pipeline_json": pipeline_json,
+                "lakehouse_name": lakehouse_name,
+                "sql_endpoint": sql_endpoint_result["sql_endpoint"],
+                "activities_count": len(pipeline_json["properties"]["activities"])
+            }
+
+        except Exception as e:
+            logger.error(f"Error generating file processing pipeline: {str(e)}")
+            return {
+                "success": False,
+                "error": str(e)
+            }
 
     async def create_pipeline(
         self,
@@ -150,11 +992,57 @@ class FabricAPIService:
             logger.error(f"Error creating pipeline: {str(e)}")
             raise
 
+    def prepare_notebook_cells_with_parameters(
+        self,
+        python_code: str,
+        parameter_name: str = "fileName",
+        parameter_default: str = "default_file.csv"
+    ) -> List[Dict[str, Any]]:
+        """
+        Prepare notebook cells with a parameters cell and main code cell
+
+        Args:
+            python_code: Complete Python code from .py file
+            parameter_name: Name of the parameter (e.g., "fileName")
+            parameter_default: Default value for the parameter
+
+        Returns:
+            List of cell definitions for notebook
+        """
+        # Cell 1: Parameters cell (tagged)
+        parameters_cell = {
+            "cell_type": "code",
+            "source": f"# Parameters\n{parameter_name} = \"{parameter_default}\"",
+            "metadata": {
+                "tags": ["parameters"]
+            },
+            "outputs": [],
+            "execution_count": None
+        }
+
+        # Cell 2: Main code cell
+        # Remove the problematic line "fileName = fileName" if it exists
+        cleaned_code = python_code.replace(f"{parameter_name} = {parameter_name}\n", "")
+        # Also remove any commented default assignment like: # fileName="claims_data.csv"
+        import re
+        cleaned_code = re.sub(rf'#\s*{parameter_name}\s*=\s*["\'].*?["\']', '', cleaned_code)
+
+        main_code_cell = {
+            "cell_type": "code",
+            "source": cleaned_code,
+            "metadata": {},
+            "outputs": [],
+            "execution_count": None
+        }
+
+        return [parameters_cell, main_code_cell]
+
     async def create_notebook(
         self,
         workspace_id: str,
         notebook_name: str,
-        notebook_code: str
+        notebook_code: str = None,
+        cells: List[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
         """
         Create a notebook in Microsoft Fabric workspace
@@ -162,7 +1050,9 @@ class FabricAPIService:
         Args:
             workspace_id: Fabric workspace ID
             notebook_name: Name of the notebook
-            notebook_code: PySpark code for the notebook
+            notebook_code: PySpark code for the notebook (single cell - legacy)
+            cells: List of cell definitions for multi-cell notebooks
+                   Each cell: {"source": "code", "cell_type": "code", "metadata": {...}}
 
         Returns:
             Dict with notebook_id and deployment info
@@ -180,10 +1070,12 @@ class FabricAPIService:
 
             # Create notebook content in ipynb format
             import base64
-            notebook_content = {
-                "nbformat": 4,
-                "nbformat_minor": 2,
-                "cells": [
+
+            # If cells provided, use them; otherwise create single code cell
+            if cells:
+                notebook_cells = cells
+            elif notebook_code:
+                notebook_cells = [
                     {
                         "cell_type": "code",
                         "source": notebook_code,
@@ -191,7 +1083,14 @@ class FabricAPIService:
                         "outputs": [],
                         "execution_count": None
                     }
-                ],
+                ]
+            else:
+                raise ValueError("Either notebook_code or cells must be provided")
+
+            notebook_content = {
+                "nbformat": 4,
+                "nbformat_minor": 2,
+                "cells": notebook_cells,
                 "metadata": {
                     "kernelspec": {
                         "name": "synapse_pyspark",
@@ -233,6 +1132,43 @@ class FabricAPIService:
 
                     notebook_id = result.get('id') or result.get('notebookId') or notebook_name
                     logger.info(f"Notebook created/accepted: {notebook_id} (status: {response.status_code})")
+
+                    # If status is 202, wait for notebook to be fully created
+                    if response.status_code == 202:
+                        logger.info(f"Notebook creation is async (202). Waiting for notebook to be ready...")
+                        logger.info(f"Polling for notebook with ID/name: {notebook_id}")
+
+                        # Poll for notebook status (max 60 seconds, check every 2 seconds)
+                        import asyncio
+                        max_attempts = 30  # 30 attempts * 2 seconds = 60 seconds total
+                        for attempt in range(max_attempts):
+                            await asyncio.sleep(2)  # Wait 2 seconds between checks
+
+                            # Try to get notebook by listing all notebooks and finding by name
+                            list_url = f"{self.base_url}/workspaces/{workspace_id}/notebooks"
+                            list_response = await client.get(list_url, headers=headers)
+
+                            if list_response.status_code == 200:
+                                notebooks_list = list_response.json().get("value", [])
+                                # Check if our notebook exists in the list
+                                notebook_found = any(
+                                    nb.get("displayName") == notebook_name or nb.get("id") == notebook_id
+                                    for nb in notebooks_list
+                                )
+
+                                if notebook_found:
+                                    logger.info(f"Notebook '{notebook_name}' is now ready (attempt {attempt + 1}/{max_attempts})")
+                                    break
+                                else:
+                                    logger.debug(f"Notebook not found yet. Total notebooks in workspace: {len(notebooks_list)}")
+
+                            if attempt == max_attempts - 1:
+                                logger.warning(f"Notebook '{notebook_name}' creation timeout after {max_attempts * 2} seconds")
+                                # Don't fail - continue anyway as notebook might still be creating
+                                logger.warning(f"Continuing with pipeline creation anyway...")
+
+                        # Wait additional time to ensure it's fully ready for pipeline reference
+                        await asyncio.sleep(5)
 
                     return {
                         "success": True,
@@ -529,7 +1465,7 @@ class FabricAPIService:
 
             if target_type in ["AzureBlob", "AzureBlobStorage"]:
                 # Azure Blob Storage shortcut
-                # Note: Must use .dfs.core.windows.net endpoint for ADLS Gen2 API compatibility
+                # Use blob.core.windows.net endpoint for regular blob storage
                 storage_account = shortcut_config.get("storage_account", "storage")
                 container = shortcut_config.get("container", "data")
                 folder_path = shortcut_config.get("folder_path", "")
@@ -544,7 +1480,7 @@ class FabricAPIService:
                 target = {
                     "adlsGen2": {
                         "connectionId": connection_id,
-                        "location": f"https://{storage_account}.dfs.core.windows.net/{container}",
+                        "location": f"https://{storage_account}.blob.core.windows.net/{container}",
                         "subpath": subpath
                     }
                 }
@@ -816,7 +1752,7 @@ class FabricAPIService:
                     "credentialType": "Key",
                     "key": account_key
                 }
-            elif auth_type == "ManagedIdentity":
+            elif auth_type in ["ManagedIdentity", "WorkspaceIdentity"]:
                 payload["credentialDetails"]["credentials"] = {
                     "credentialType": "WorkspaceIdentity"
                 }
@@ -995,12 +1931,19 @@ class FabricAPIService:
         else:
             raise ValueError(f"Unsupported source type: {source_type}")
 
-    def _transform_activities_to_fabric_format(self, activities: List[Dict[str, Any]]) -> Dict[str, Any]:
+    def _transform_activities_to_fabric_format(
+        self,
+        activities: List[Dict[str, Any]],
+        workspace_id: str = None,
+        lakehouse_id: str = None
+    ) -> Dict[str, Any]:
         """
         Transform Claude-generated activities to Fabric pipeline format
 
         Args:
             activities: List of activities from Claude
+            workspace_id: Workspace ID to inject into sources/sinks
+            lakehouse_id: Lakehouse ID to inject into LakehouseFiles sources
 
         Returns:
             Dict with 'activities' and 'datasets' arrays
@@ -1019,6 +1962,20 @@ class FabricAPIService:
                 # Build Copy Activity with proper connection reference
                 source_config = config.get('source', {})
                 sink_config = config.get('sink', {})
+
+                # Inject workspace_id and lakehouse_id into LakehouseFiles sources
+                if source_config.get('type') == 'LakehouseFiles':
+                    if workspace_id and 'workspace_id' not in source_config:
+                        source_config['workspace_id'] = workspace_id
+                    if lakehouse_id and 'lakehouse_id' not in source_config:
+                        source_config['lakehouse_id'] = lakehouse_id
+
+                # Inject workspace_id and lakehouse_id into sinks
+                if sink_config.get('type') in ['LakehouseTable', 'Lakehouse']:
+                    if workspace_id and 'workspace_id' not in sink_config:
+                        sink_config['workspace_id'] = workspace_id
+                    if lakehouse_id and 'lakehouse_id' not in sink_config:
+                        sink_config['lakehouse_id'] = lakehouse_id
 
                 fabric_activity = {
                     "name": activity_name,
@@ -1090,7 +2047,11 @@ class FabricAPIService:
 
             elif activity_type == 'ForEach':
                 # Build ForEach Activity
-                nested = self._transform_activities_to_fabric_format(config.get('activities', []))
+                nested = self._transform_activities_to_fabric_format(
+                    config.get('activities', []),
+                    workspace_id,
+                    lakehouse_id
+                )
                 fabric_activity = {
                     "name": activity_name,
                     "type": "ForEach",
@@ -1169,24 +2130,64 @@ print(f"Successfully processed {{df.count()}} rows into {sink_table}")
         """Build proper Fabric Copy Activity source with connection reference"""
         source_type = source_config.get('type', 'LakehouseTable')
 
-        if 'Blob' in source_type or 'DelimitedText' in source_type:
-            # Azure Blob Storage source - reference linked service from config
-            # Get file path, container, and linked service name from config
+        if source_type == 'LakehouseFiles':
+            # Lakehouse Files source (for shortcuts)
+            # This is used when data is accessed via OneLake shortcuts
+            path = source_config.get('path', 'Files/bronze')
+            file_pattern = source_config.get('filePattern') or source_config.get('fileName', '*.csv')
+
+            # Get workspace and lakehouse IDs
+            workspace_id = source_config.get('workspaceId') or source_config.get('workspace_id')
+            item_id = source_config.get('itemId') or source_config.get('item_id') or source_config.get('lakehouse_id')
+
+            source = {
+                "type": "DelimitedTextSource",
+                "storeSettings": {
+                    "type": "LakehouseReadSettings",
+                    "recursive": True,
+                    "wildcardFileName": file_pattern,
+                    "wildcardFolderPath": path,
+                    "enablePartitionDiscovery": False
+                },
+                "formatSettings": {
+                    "type": "DelimitedTextReadSettings"
+                }
+            }
+
+            # Add workspace and item IDs if provided
+            if workspace_id:
+                source["storeSettings"]["workspaceId"] = workspace_id
+            if item_id:
+                source["storeSettings"]["itemId"] = item_id
+
+            return source
+        elif 'Blob' in source_type or 'DelimitedText' in source_type:
+            # Azure Blob Storage source - use the actual connection name
             container = source_config.get('container', 'fabric')
             file_path = source_config.get('fileName') or source_config.get('file_path', 'data.csv')
-            linked_service = source_config.get('linkedService') or source_config.get('linkedServiceName') or source_config.get('linked_service_name', 'BlobStorage_Connection')
+
+            # Get the connection name - this should match what was actually created
+            # Try different possible field names
+            connection_name = (source_config.get('linkedService') or
+                              source_config.get('linkedServiceName') or
+                              source_config.get('linked_service_name') or
+                              source_config.get('connection_name') or
+                              'blobstorage_connection')  # Default fallback
+
+            # Normalize the connection name to match what was created
+            connection_name = connection_name.lower().replace(' ', '_')
 
             return {
                 "type": "DelimitedTextSource",
                 "connection": {
-                    "referenceName": linked_service,
+                    "referenceName": connection_name,  # Use normalized name
                     "type": "ConnectionReference"
                 },
                 "storeSettings": {
                     "type": "AzureBlobStorageReadSettings",
-                    "recursive": False,
+                    "recursive": True,
                     "wildcardFileName": file_path,
-                    "container": container
+                    "wildcardFolderPath": container  # Use container as folder path
                 },
                 "formatSettings": {
                     "type": "DelimitedTextReadSettings"
@@ -1264,18 +2265,32 @@ print(f"Successfully processed {{df.count()}} rows into {sink_table}")
         source_type = source_config.get('type', 'LakehouseTable')
 
         if source_type == 'DelimitedText' or 'Blob' in source_type:
-            # Build inline dataset for blob storage
+            # Build inline dataset for blob storage with connection reference
             container = source_config.get('container', 'data')
             file_name = source_config.get('fileName') or source_config.get('file_path', '*.csv')
-            linked_service = source_config.get('linkedService') or source_config.get('linkedServiceName', '')
+
+            # Get the connection name - this should match what was actually created
+            # Try different possible field names
+            connection_name = (source_config.get('linkedService') or
+                              source_config.get('linkedServiceName') or
+                              source_config.get('linked_service_name') or
+                              source_config.get('connection_name') or
+                              'blobstorage_connection')  # Default fallback
+
+            # Normalize the connection name to match what was created
+            connection_name = connection_name.lower().replace(' ', '_')
 
             return {
                 "type": "DelimitedTextSource",
+                "connection": {
+                    "referenceName": connection_name,  # Use normalized name
+                    "type": "ConnectionReference"
+                },
                 "storeSettings": {
                     "type": "AzureBlobStorageReadSettings",
-                    "recursive": False,
+                    "recursive": True,
                     "wildcardFileName": file_name,
-                    "wildcardFolderPath": ""
+                    "wildcardFolderPath": container  # Use container as folder path
                 },
                 "formatSettings": {
                     "type": "DelimitedTextReadSettings",
@@ -1345,6 +2360,13 @@ print(f"Successfully processed {{df.count()}} rows into {sink_table}")
         try:
             logger.info(f"Starting deployment of pipeline '{pipeline_name}' to workspace {workspace_id}")
 
+            # Get lakehouse ID for the workspace (needed for LakehouseFiles source)
+            lakehouses = await self.get_workspace_lakehouses(workspace_id)
+            lakehouse_id = None
+            if lakehouses:
+                lakehouse_id = lakehouses[0].get("id")
+                logger.info(f"Using lakehouse: {lakehouses[0].get('displayName')} ({lakehouse_id})")
+
             # Deploy linked services first (if provided)
             deployed_linked_services = []
             if linked_services:
@@ -1378,12 +2400,18 @@ print(f"Successfully processed {{df.count()}} rows into {sink_table}")
                 raise Exception("Cannot deploy pipeline: No activities defined. Pipeline must have at least one activity.")
 
             # Transform activities to Fabric format
-            transformed = self._transform_activities_to_fabric_format(activities)
+            # Pass workspace_id and lakehouse_id to inject into LakehouseFiles sources
+            transformed = self._transform_activities_to_fabric_format(activities, workspace_id, lakehouse_id)
             fabric_activities = transformed['activities']
             datasets = transformed.get('datasets', [])
 
             logger.info(f"Transformed to Fabric format: {len(fabric_activities)} activities, {len(datasets)} datasets")
-            logger.info(f"Activities: {json.dumps(fabric_activities, indent=2)[:500]}")
+
+            # Log FULL transformed activities for debugging
+            logger.info("="*80)
+            logger.info("FULL TRANSFORMED ACTIVITIES (for debugging connection references):")
+            logger.info(json.dumps(fabric_activities, indent=2))
+            logger.info("="*80)
 
             # Create Fabric pipeline definition with datasets
             fabric_pipeline_def = {
@@ -1401,6 +2429,20 @@ print(f"Successfully processed {{df.count()}} rows into {sink_table}")
             if datasets:
                 fabric_pipeline_def["properties"]["datasets"] = datasets
                 logger.info(f"Added {len(datasets)} datasets to pipeline")
+
+            # Extract all connection references from activities for validation message
+            connection_refs = set()
+            for activity in fabric_activities:
+                if "typeProperties" in activity:
+                    if "source" in activity["typeProperties"]:
+                        if "connection" in activity["typeProperties"]["source"]:
+                            conn_ref = activity["typeProperties"]["source"]["connection"].get("referenceName")
+                            if conn_ref:
+                                connection_refs.add(conn_ref)
+
+            if connection_refs:
+                logger.info(f"Pipeline references these connections: {', '.join(connection_refs)}")
+                logger.warning(f"IMPORTANT: Ensure these connections exist in workspace {workspace_id} before deploying!")
 
             # Deploy pipeline
             logger.info(f"Deploying pipeline: {pipeline_name}")
@@ -1436,3 +2478,235 @@ print(f"Successfully processed {{df.count()}} rows into {sink_table}")
                 "success": False,
                 "error": str(e)
             }
+
+    async def deploy_pipeline_from_json(
+        self,
+        workspace_id: str,
+        pipeline_json: Dict[str, Any],
+        external_refs: Dict[str, str] = None,
+        replace_dataflow: bool = True
+    ) -> Dict[str, Any]:
+        """
+        Deploy a pipeline from existing pipeline JSON definition (e.g., exported from Fabric UI)
+
+        Args:
+            workspace_id: Fabric workspace ID
+            pipeline_json: Complete pipeline JSON (with name, objectId, properties)
+            external_refs: Optional dict to override external reference IDs
+                {
+                    "notebook_id": "new-notebook-id",
+                    "dataflow_id": "new-dataflow-id",
+                    "workspace_id": "new-workspace-id",
+                    "lakehouse_id": "new-lakehouse-id",
+                    "email_connection_id": "new-email-connection-id",
+                    "sql_connection_id": "new-sql-connection-id"
+                }
+            replace_dataflow: If True, replace RefreshDataflow with Copy Data activity
+
+        Returns:
+            Dict with deployment result
+        """
+        try:
+            pipeline_name = pipeline_json.get("name", "Imported_Pipeline")
+            logger.info(f"Deploying pipeline '{pipeline_name}' from JSON to workspace {workspace_id}")
+
+            # Clone the pipeline JSON to avoid modifying the original
+            import copy
+            pipeline_def = copy.deepcopy(pipeline_json)
+
+            # Replace RefreshDataflow with Copy Data activity if requested
+            if replace_dataflow:
+                logger.info("Replacing RefreshDataflow activities with Copy Data activities...")
+                pipeline_def = self.replace_dataflow_with_copy_activity(pipeline_def)
+
+            # If external_refs provided, update IDs in the pipeline
+            if external_refs:
+                logger.info(f"Updating external references: {list(external_refs.keys())}")
+                pipeline_def = self._update_external_references(pipeline_def, external_refs)
+
+            # Extract just the properties section for deployment
+            # Fabric API expects the pipeline definition in a specific format
+            if "properties" in pipeline_def:
+                fabric_pipeline_def = {
+                    "name": pipeline_name,
+                    "properties": pipeline_def["properties"]
+                }
+            else:
+                fabric_pipeline_def = pipeline_def
+
+            # Remove objectId and lastPublishTime if present (these are read-only)
+            if "objectId" in fabric_pipeline_def:
+                del fabric_pipeline_def["objectId"]
+            if "properties" in fabric_pipeline_def and "lastPublishTime" in fabric_pipeline_def["properties"]:
+                fabric_pipeline_def["properties"]["lastPublishTime"] = None
+            if "properties" in fabric_pipeline_def and "lastModifiedByObjectId" in fabric_pipeline_def["properties"]:
+                del fabric_pipeline_def["properties"]["lastModifiedByObjectId"]
+
+            logger.info(f"Pipeline definition prepared with {len(fabric_pipeline_def.get('properties', {}).get('activities', []))} activities")
+
+            # Deploy the pipeline
+            result = await self.create_pipeline(
+                workspace_id=workspace_id,
+                pipeline_name=pipeline_name,
+                pipeline_definition=fabric_pipeline_def
+            )
+
+            return result
+
+        except Exception as e:
+            logger.error(f"Failed to deploy pipeline from JSON: {str(e)}")
+            return {
+                "success": False,
+                "error": str(e)
+            }
+
+    def replace_dataflow_with_copy_activity(
+        self,
+        pipeline_def: Dict[str, Any],
+        source_path: str = "Files/claimpriorauth",
+        target_table: str = "curated_claims"
+    ) -> Dict[str, Any]:
+        """
+        Replace RefreshDataflow activity with Copy Data activity
+
+        Args:
+            pipeline_def: Pipeline definition dict
+            source_path: Lakehouse Files path to read from
+            target_table: Lakehouse table to write to
+
+        Returns:
+            Updated pipeline definition with Copy activity instead of RefreshDataflow
+        """
+        import copy
+        updated_def = copy.deepcopy(pipeline_def)
+
+        # Find and replace RefreshDataflow activities
+        if "properties" in updated_def and "activities" in updated_def["properties"]:
+            for i, activity in enumerate(updated_def["properties"]["activities"]):
+                if activity.get("type") == "RefreshDataflow":
+                    # Get dependencies from original dataflow activity
+                    depends_on = activity.get("dependsOn", [])
+                    activity_name = activity.get("name", "curated Data")
+
+                    # Create Copy Data activity to replace it
+                    copy_activity = {
+                        "name": activity_name,
+                        "type": "Copy",
+                        "dependsOn": depends_on,
+                        "policy": {
+                            "timeout": "0.12:00:00",
+                            "retry": 0,
+                            "retryIntervalInSeconds": 30,
+                            "secureOutput": False,
+                            "secureInput": False
+                        },
+                        "typeProperties": {
+                            "source": {
+                                "type": "ParquetSource",
+                                "storeSettings": {
+                                    "type": "LakehouseReadSettings",
+                                    "recursive": True,
+                                    "wildcardFolderPath": source_path,
+                                    "wildcardFileName": "*.parquet",
+                                    "enablePartitionDiscovery": False
+                                },
+                                "formatSettings": {
+                                    "type": "ParquetReadSettings"
+                                }
+                            },
+                            "sink": {
+                                "type": "LakehouseSink",
+                                "rootFolder": "Tables",
+                                "table": target_table,
+                                "tableActionOption": "Append"
+                            },
+                            "enableStaging": False
+                        }
+                    }
+
+                    # Replace the activity
+                    updated_def["properties"]["activities"][i] = copy_activity
+                    logger.info(f"Replaced RefreshDataflow activity '{activity_name}' with Copy Data activity")
+
+                # Also recursively check nested activities (inside ForEach, IfCondition, etc.)
+                if "typeProperties" in activity and "activities" in activity["typeProperties"]:
+                    nested_def = {"properties": {"activities": activity["typeProperties"]["activities"]}}
+                    nested_updated = self.replace_dataflow_with_copy_activity(
+                        nested_def, source_path, target_table
+                    )
+                    activity["typeProperties"]["activities"] = nested_updated["properties"]["activities"]
+
+        return updated_def
+
+    def _update_external_references(
+        self,
+        pipeline_def: Dict[str, Any],
+        external_refs: Dict[str, str]
+    ) -> Dict[str, Any]:
+        """
+        Update external reference IDs in pipeline definition
+
+        Args:
+            pipeline_def: Pipeline definition dict
+            external_refs: Dict of reference IDs to update
+
+        Returns:
+            Updated pipeline definition
+        """
+        import json
+        import re
+
+        # Convert to JSON string for regex replacement
+        pipeline_str = json.dumps(pipeline_def)
+
+        # Update workspace IDs
+        if "workspace_id" in external_refs:
+            pipeline_str = re.sub(
+                r'"workspaceId"\s*:\s*"[^"]*"',
+                f'"workspaceId": "{external_refs["workspace_id"]}"',
+                pipeline_str
+            )
+
+        # Update notebook ID
+        if "notebook_id" in external_refs:
+            pipeline_str = re.sub(
+                r'"notebookId"\s*:\s*"[^"]*"',
+                f'"notebookId": "{external_refs["notebook_id"]}"',
+                pipeline_str
+            )
+
+        # Update dataflow ID
+        if "dataflow_id" in external_refs:
+            pipeline_str = re.sub(
+                r'"dataflowId"\s*:\s*"[^"]*"',
+                f'"dataflowId": "{external_refs["dataflow_id"]}"',
+                pipeline_str
+            )
+
+        # Update lakehouse ID (artifactId in lakehouse connection)
+        if "lakehouse_id" in external_refs:
+            pipeline_str = re.sub(
+                r'"artifactId"\s*:\s*"[^"]*"',
+                f'"artifactId": "{external_refs["lakehouse_id"]}"',
+                pipeline_str
+            )
+
+        # Update connection IDs in externalReferences
+        if "email_connection_id" in external_refs:
+            # Find Office365Email activities and replace their connection ID
+            pipeline_str = re.sub(
+                r'("type"\s*:\s*"Office365Email"[\s\S]{0,500}?"externalReferences"\s*:\s*\{\s*"connection"\s*:\s*)"[^"]*"',
+                f'\\1"{external_refs["email_connection_id"]}"',
+                pipeline_str
+            )
+
+        if "sql_connection_id" in external_refs:
+            # Find Script activities and replace their connection ID
+            pipeline_str = re.sub(
+                r'("type"\s*:\s*"Script"[\s\S]{0,500}?"externalReferences"\s*:\s*\{\s*"connection"\s*:\s*)"[^"]*"',
+                f'\\1"{external_refs["sql_connection_id"]}"',
+                pipeline_str
+            )
+
+        # Convert back to dict
+        return json.loads(pipeline_str)
