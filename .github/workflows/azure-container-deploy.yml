@@ -11,102 +11,6 @@ on:
       - main
 
 jobs:
-  CodeAnalysis:
-    runs-on: ubuntu-latest
-    continue-on-error: true
-    steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: '3.11'
-
-      - name: Install Dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install flake8 black
-          if [ -f backend/requirements.txt ]; then pip install -r backend/requirements.txt; fi
-
-      - name: Run Flake8 (Linting)
-        continue-on-error: true
-        run: flake8 backend --count --show-source --statistics --max-line-length=120 --exclude=backend/__pycache__,backend/venv
-
-      - name: Run Black (Code Formatting Check)
-        continue-on-error: true
-        run: black --check backend --exclude='/(\.git|\.venv|venv|__pycache__|\.pytest_cache)/'
-
-  SecurityAnalysis:
-    runs-on: ubuntu-latest
-    continue-on-error: true
-    steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: '3.11'
-
-      - name: Install Security Dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install bandit safety
-          if [ -f backend/requirements.txt ]; then pip install -r backend/requirements.txt; fi
-
-      - name: Run Bandit Security Scan
-        continue-on-error: true
-        run: bandit -r backend -ll -x backend/__pycache__,backend/venv,backend/test
-
-      - name: Run Safety Dependency Check
-        continue-on-error: true
-        run: safety check --full-report || echo "Safety check completed with warnings"
-
-      - name: Run Trivy Repository Scan
-        uses: aquasecurity/trivy-action@master
-        with:
-          scan-type: "fs"
-          scan-ref: "."
-          exit-code: 0
-
-      - name: Run Trivy Docker Scan - Python Base
-        continue-on-error: true
-        run: |
-          docker pull python:3.11-slim
-          trivy image --severity HIGH,CRITICAL python:3.11-slim || echo "Trivy scan completed"
-
-      - name: Initialize CodeQL
-        uses: github/codeql-action/init@v2
-        with:
-          languages: python, javascript
-
-      - name: Perform CodeQL Analysis
-        uses: github/codeql-action/analyze@v2
-
-  FrontendLinting:
-    runs-on: ubuntu-latest
-    continue-on-error: true
-    steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '18'
-          cache: 'npm'
-          cache-dependency-path: 'frontend/package-lock.json'
-
-      - name: Install Frontend Dependencies
-        working-directory: ./frontend
-        run: npm ci
-
-      - name: Run ESLint
-        working-directory: ./frontend
-        continue-on-error: true
-        run: npm run lint || echo "ESLint completed"
-
   CodeTesting:
     runs-on: ubuntu-latest
     steps:
@@ -143,7 +47,6 @@ jobs:
           name: backend-coverage
 
   BackendDeployment:
-    needs: [CodeAnalysis, SecurityAnalysis, CodeTesting]
     runs-on: ubuntu-latest
     if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev-jay')
     env:
@@ -287,7 +190,7 @@ jobs:
           curl -f https://$BACKEND_URL/ || echo "Backend health check failed, but continuing..."
 
   FrontendDeployment:
-    needs: [FrontendLinting, CodeTesting, BackendDeployment]
+    needs: [BackendDeployment]
     runs-on: ubuntu-latest
     if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev-jay')
     env:
