@@ -1,3 +1,17 @@
+/* @tailwind base;
+@tailwind components;
+@tailwind utilities; */
+
+/* Ensure proper CSS reset and compatibility with MUI */
+.ai-chat-override {
+  all: revert-layer;
+}
+
+/* Force Tailwind styles to have higher specificity */
+.ai-chat-container {
+  isolation: isolate;
+}
+
 * {
   margin: 0;
   padding: 0;

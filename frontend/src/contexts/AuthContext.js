@@ -41,11 +41,14 @@ export const AuthProvider = ({ children }) => {
         } else {
           // Check if user is already logged in
           const accounts = msalInstance.getAllAccounts();
-          if (accounts.length > 0) {
+          const storedToken = localStorage.getItem('msal_token');
+          const storedEmail = localStorage.getItem('user_email');
+
+          if (accounts.length > 0 && storedToken && storedEmail) {
             const account = accounts[0];
             msalInstance.setActiveAccount(account);
 
-            // Try to acquire token silently
+            // Try to acquire token silently to validate the stored token
             try {
               const tokenResponse = await msalInstance.acquireTokenSilent({
                 ...loginRequest,
@@ -54,18 +57,61 @@ export const AuthProvider = ({ children }) => {
               handleLoginSuccess(tokenResponse);
             } catch (error) {
               console.error('Silent token acquisition failed:', error);
+              // Token is invalid, clear everything
+              localStorage.removeItem('msal_token');
+              localStorage.removeItem('user_email');
+              msalInstance.setActiveAccount(null);
               setIsAuthenticated(false);
+              setUser(null);
             }
+          } else {
+            // No valid authentication found, ensure clean state
+            localStorage.removeItem('msal_token');
+            localStorage.removeItem('user_email');
+            setIsAuthenticated(false);
+            setUser(null);
           }
         }
       } catch (error) {
         console.error('Auth initialization error:', error);
+        // On any error, ensure clean state
+        localStorage.removeItem('msal_token');
+        localStorage.removeItem('user_email');
+        setIsAuthenticated(false);
+        setUser(null);
       } finally {
         setIsLoading(false);
       }
     };
 
+    // Handle storage changes (e.g., logout from another tab or external clearing)
+    const handleStorageChange = (e) => {
+      console.log('Storage event detected:', { key: e.key, oldValue: e.oldValue, newValue: e.newValue });
+      
+      // Be very conservative about storage-based logout
+      // Only logout if this was clearly an intentional token removal
+      if ((e.key === 'msal_token' || e.key === 'user_email') && e.newValue === null && e.oldValue) {
+        // Double-check that both tokens are actually gone
+        const token = localStorage.getItem('msal_token');
+        const email = localStorage.getItem('user_email');
+        
+        if (!token && !email) {
+          console.log('Both tokens cleared externally - logging out');
+          setUser(null);
+          setIsAuthenticated(false);
+        } else {
+          console.log('Only one token cleared or tokens still present - not logging out');
+        }
+      }
+    };
+
+    window.addEventListener('storage', handleStorageChange);
     initAuth();
+
+    // Cleanup
+    return () => {
+      window.removeEventListener('storage', handleStorageChange);
+    };
   }, []);
 
   const handleLoginSuccess = (response) => {
@@ -96,17 +142,46 @@ export const AuthProvider = ({ children }) => {
 
   const logout = async () => {
     try {
+      // Update state immediately to show login screen
+      setUser(null);
+      setIsAuthenticated(false);
+
+      // Clear local storage
       localStorage.removeItem('msal_token');
       localStorage.removeItem('user_email');
 
-      await msalInstance.logoutRedirect({
-        postLogoutRedirectUri: window.location.origin,
-      });
+      // Clear MSAL cache and accounts
+      const accounts = msalInstance.getAllAccounts();
+      if (accounts.length > 0) {
+        // Clear all accounts from MSAL cache
+        accounts.forEach(account => {
+          msalInstance.removeAccount(account);
+        });
+        msalInstance.setActiveAccount(null);
+      }
 
-      setUser(null);
-      setIsAuthenticated(false);
+      // Clear the entire MSAL cache to ensure complete logout
+      await msalInstance.clearCache();
+
+      // Optional: Perform logout from Microsoft
+      try {
+        await msalInstance.logoutPopup({
+          postLogoutRedirectUri: window.location.origin,
+          mainWindowRedirectUri: window.location.origin
+        });
+      } catch (popupError) {
+        // If popup is blocked or fails, we still maintain logged out state
+        console.warn('Popup logout failed, but local logout completed:', popupError);
+      }
     } catch (error) {
       console.error('Logout error:', error);
+      // Ensure state is updated even if logout fails
+      setUser(null);
+      setIsAuthenticated(false);
+      
+      // Force clear storage even on error
+      localStorage.removeItem('msal_token');
+      localStorage.removeItem('user_email');
     }
   };
 
