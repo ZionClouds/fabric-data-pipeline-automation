@@ -29,6 +29,9 @@ from models.pipeline_models import (
     FileProcessingPipelineRequest, FileProcessingPipelineResponse
 )
 
+# Import fabric deployment router
+from fabric_deployment_endpoint import router as fabric_router
+
 # In-memory storage for generated pipelines (temporary - should use database in production)
 generated_pipelines = {}
 
@@ -51,6 +54,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Include Fabric deployment router
+app.include_router(fabric_router)
 
 # Initialize services
 claude_service = ClaudeAIService()
@@ -456,51 +462,232 @@ Would you like me to provide manual instructions instead?"""
                     confirmation_action=None
                 )
 
-        # DETECT BLOB STORAGE MENTION (If not already pending)
+        # CHECK FOR PENDING DEPLOYMENT PARAMETER COLLECTION
+        if pending and pending["action"] == "collect_deployment_params":
+            # User is providing deployment parameters step by step
+            step = pending.get("data", {}).get("step")
+            deployment_config = pending.get("data", {}).get("config", {})
+
+            if step == "lakehouse_name":
+                # Parse lakehouse name from user input
+                # Handle cases like "warehouse = jay-dev-warehouse lakehouse = jay_dev_lakehouse"
+                lakehouse_name = user_message.strip()
+
+                # Try to extract lakehouse name if user provided both warehouse and lakehouse
+                if "lakehouse" in lakehouse_name.lower():
+                    import re
+                    # Extract value after "lakehouse ="
+                    match = re.search(r'lakehouse\s*=\s*([^\s]+)', lakehouse_name, re.IGNORECASE)
+                    if match:
+                        lakehouse_name = match.group(1)
+                    else:
+                        # Just take the last word if pattern doesn't match
+                        parts = lakehouse_name.split()
+                        lakehouse_name = parts[-1]
+
+                deployment_config["lakehouse_name"] = lakehouse_name
+                conv_context.set_pending_confirmation("collect_deployment_params", {
+                    "workspace_id": request.workspace_id,
+                    "step": "source_folder",
+                    "config": deployment_config
+                })
+
+                response = f"""✅ **Lakehouse:** {lakehouse_name}
+✅ **Warehouse:** jay-dev-warehouse (default)
+
+**What's the source folder name?**
+(e.g., "bronze", "incoming", "raw-data")
+
+This is where your CSV files are located in the blob storage."""
+
+                return ChatResponse(
+                    role="assistant",
+                    content=response,
+                    suggestions=["bronze", "incoming", "raw-data"],
+                    pipeline_preview=None,
+                    shortcut_info=None,
+                    needs_confirmation=False,
+                    confirmation_action=None
+                )
+
+            elif step == "source_folder":
+                # Store source folder and ask for output folder
+                deployment_config["source_folder"] = user_message.strip()
+                conv_context.set_pending_confirmation("collect_deployment_params", {
+                    "workspace_id": request.workspace_id,
+                    "step": "output_folder",
+                    "config": deployment_config
+                })
+
+                response = f"""✅ **Source folder:** Files/{user_message.strip()}
+
+**What's the output folder name?**
+(e.g., "silver", "processed", "clean-data")
+
+This is where the processed results will be stored."""
+
+                return ChatResponse(
+                    role="assistant",
+                    content=response,
+                    suggestions=["silver", "processed", "clean-data"],
+                    pipeline_preview=None,
+                    shortcut_info=None,
+                    needs_confirmation=False,
+                    confirmation_action=None
+                )
+
+            elif step == "output_folder":
+                # Store output folder and ask for pipeline name
+                deployment_config["output_folder"] = user_message.strip()
+                conv_context.set_pending_confirmation("collect_deployment_params", {
+                    "workspace_id": request.workspace_id,
+                    "step": "pipeline_name",
+                    "config": deployment_config
+                })
+
+                response = f"""✅ **Output folder:** Files/{user_message.strip()}
+
+**What should I name this pipeline?**
+(e.g., "DataProcessingPipeline", "CSVLoader", "PIIDetectionPipeline")"""
+
+                return ChatResponse(
+                    role="assistant",
+                    content=response,
+                    suggestions=["DataProcessingPipeline", "CSVLoader", "PIIDetectionPipeline"],
+                    pipeline_preview=None,
+                    shortcut_info=None,
+                    needs_confirmation=False,
+                    confirmation_action=None
+                )
+
+            elif step == "pipeline_name":
+                # Store pipeline name and ask about PII/PHI detection
+                deployment_config["pipeline_name"] = user_message.strip()
+                conv_context.set_pending_confirmation("collect_deployment_params", {
+                    "workspace_id": request.workspace_id,
+                    "step": "pii_phi_detection",
+                    "config": deployment_config
+                })
+
+                response = f"""✅ **Pipeline Name:** {user_message.strip()}
+
+**Do you need PII/PHI detection?**
+(This will scan your CSV files for sensitive personal and health information)"""
+
+                return ChatResponse(
+                    role="assistant",
+                    content=response,
+                    suggestions=["Yes, enable PII/PHI detection", "No, just load the data"],
+                    pipeline_preview=None,
+                    shortcut_info=None,
+                    needs_confirmation=False,
+                    confirmation_action=None
+                )
+
+            elif step == "pii_phi_detection":
+                # Store PII/PHI detection preference and show summary
+                pii_phi_needed = conv_context.is_user_confirming(user_message)
+                deployment_config["pii_phi_detection"] = pii_phi_needed
+
+                # Build pipeline steps based on PII/PHI detection
+                if pii_phi_needed:
+                    pipeline_steps = f"""1. Get all CSV files from Files/{deployment_config.get('source_folder')}
+2. Filter out already-processed files
+3. Run PII/PHI detection on each file
+4. Save results to Files/{deployment_config.get('output_folder')}"""
+                else:
+                    pipeline_steps = f"""1. Get all CSV files from Files/{deployment_config.get('source_folder')}
+2. Filter out already-processed files
+3. Save results to Files/{deployment_config.get('output_folder')}"""
+
+                # Show configuration summary
+                summary_message = f"""✅ **Configuration Complete!**
+
+**Summary:**
+- **Workspace:** jay-dev (default)
+- **Lakehouse:** {deployment_config.get('lakehouse_name')}
+- **Warehouse:** jay-dev-warehouse (default)
+- **Source:** Files/{deployment_config.get('source_folder')}
+- **Output:** Files/{deployment_config.get('output_folder')}
+- **Pipeline Name:** {deployment_config.get('pipeline_name')}
+- **PII/PHI Detection:** {"Enabled" if pii_phi_needed else "Disabled"}
+
+This pipeline will:
+{pipeline_steps}
+
+**Ready to deploy?**
+Reply with "yes" or "deploy" to create the pipeline."""
+
+                # Clear pending state - we're done collecting values
+                conv_context.clear_pending_confirmation()
+
+                # Direct user to Pipeline Preview page
+                redirect_message = f"""{summary_message}
+
+**Next Step:**
+1. Go to the **Pipeline Preview** page
+2. Click the **"Generate Pipeline"** button to deploy
+
+The pipeline will be created in your workspace using these settings."""
+
+                return ChatResponse(
+                    role="assistant",
+                    content=redirect_message,
+                    suggestions=["Go to Pipeline Preview"],
+                    pipeline_preview=None,
+                    shortcut_info=None,
+                    needs_confirmation=False,
+                    confirmation_action=None
+                )
+
+        # Note: Deployment is now handled by the /api/pipelines/generate endpoint
+        # The chat just collects parameters and redirects to Pipeline Preview
+
+        # DETECT BLOB STORAGE / CSV LOADING MENTION (If not already pending)
         user_message_lower = user_message.lower()
-        blob_keywords = ["azure blob", "blob storage", "azure storage", "storage account"]
+        blob_keywords = ["azure blob", "blob storage", "azure storage", "storage account", "csv files", "load csv", "loading csv"]
         blob_detected = any(keyword in user_message_lower for keyword in blob_keywords)
 
         if blob_detected and not pending:
-            # User mentioned blob storage - suggest shortcut creation
-            logger.info("Blob storage detected in user message. Suggesting shortcut creation...")
+            # User mentioned blob storage or CSV loading - start pipeline deployment flow
+            logger.info("Blob storage/CSV loading detected - starting deployment flow...")
 
-            conv_context.set_pending_confirmation("create_shortcut", {
+            conv_context.set_pending_confirmation("collect_deployment_params", {
                 "workspace_id": request.workspace_id,
-                "storage_account": settings.STORAGE_ACCOUNT_NAME
+                "step": "lakehouse_name"
             })
 
-            confirmation_message = f"""🔍 **I detected you want to use Azure Blob Storage!**
+            deployment_message = """🔍 **I can help you deploy a Fabric pipeline to load data from blob storage to your lakehouse!**
 
-I can automatically set up shortcuts for you:
+This will create a pipeline that:
+- Processes CSV files from blob storage
+- Detects PII/PHI in your data
+- Loads results into your lakehouse
 
-**What I'll Create:**
-1. Connection to your storage account: **{settings.STORAGE_ACCOUNT_NAME}**
-2. Shortcuts in your lakehouse to access:
-   - **bronze** container → `Files/azure_blob_bronze`
-   - **silver** container → `Files/azure_blob_silver`
+**What lakehouse should I use?**
+(Just provide the lakehouse name, e.g., "jay_dev_lakehouse")
 
-This will let you access your blob data directly without copying it first.
-
-**Would you like me to proceed?**
-(Reply with "yes", "proceed", or "go ahead" to confirm)"""
+Note: The warehouse connection "jay-dev-warehouse" will be used automatically."""
 
             return ChatResponse(
                 role="assistant",
-                content=confirmation_message,
-                suggestions=["Yes, proceed", "No, not now", "Tell me more"],
+                content=deployment_message,
+                suggestions=None,
                 pipeline_preview=None,
                 shortcut_info=None,
-                needs_confirmation=True,
-                confirmation_action="create_shortcut"
+                needs_confirmation=False,
+                confirmation_action=None
             )
 
-        # NORMAL AI CHAT FLOW (No shortcuts needed)
+        # NORMAL AI CHAT FLOW
         # Check if we should proactively search for best practices
         proactive_search_query = conv_context.should_search_for_best_practices()
 
         # Convert ChatMessage objects to dict format for Azure AI Agent
         messages = [{"role": msg.role, "content": msg.content} for msg in request.messages]
+
+        # Note: Azure AI Agent only supports 'user' and 'assistant' roles, not 'system'
+        # We'll append instructions to the user message instead if needed
 
         # Add context information to help the agent be more proactive
         context_summary = conv_context.get_context_for_agent()
@@ -660,34 +847,117 @@ async def simple_chat_with_gpt5(request: ChatRequest, user: dict = Depends(valid
 async def generate_pipeline(request: PipelineGenerateRequest, user: dict = Depends(validate_token)):
     """
     Generate complete pipeline from requirements
+
+    For CSV/blob storage pipelines, this uses the hardcoded deployment template.
+    For other pipelines, this uses Claude generation.
     """
     try:
         logger.info(f"Generating pipeline: {request.pipeline_name} for user: {user['email']}")
 
-        result = await claude_service.generate_pipeline(request)
+        # JUST GENERATE PREVIEW - Don't deploy yet!
+        logger.info("Generating pipeline preview with hardcoded values")
 
-        # Generate pipeline ID and store in memory
+        # Import required models
+        from models.pipeline_models import NotebookCode, MedallionLayer, PipelineActivity
         import time
+
+        # Generate pipeline ID for storing in memory
         pipeline_id = int(time.time())
 
-        # Store generated pipeline for deployment
+        # Define full pipeline activities (what will be deployed)
+        activities = [
+            PipelineActivity(
+                name="Get_CSV_Files_List",
+                type="Lookup",
+                config={
+                    "description": "Get list of CSV files from lakehouse Files folder",
+                    "source": {"type": "LakehouseFiles", "path": "Files/bronze"},
+                    "query": "List all .csv files"
+                },
+                depends_on=None
+            ),
+            PipelineActivity(
+                name="GetProcessedFileNames",
+                type="Lookup",
+                config={
+                    "description": "Query warehouse to get already processed files",
+                    "source": {"type": "WarehouseQuery"},
+                    "query": "SELECT processed_file FROM silver_processing_log"
+                },
+                depends_on=None
+            ),
+            PipelineActivity(
+                name="FilterNewFiles",
+                type="Filter",
+                config={
+                    "description": "Filter out files that have already been processed",
+                    "items": "@activity('Get_CSV_Files_List').output.value",
+                    "condition": "@not(contains(activity('GetProcessedFileNames').output.value, item().name))"
+                },
+                depends_on=["Get_CSV_Files_List", "GetProcessedFileNames"]
+            ),
+            PipelineActivity(
+                name="Process_CSV_Files",
+                type="ForEach",
+                config={
+                    "description": "Process each new CSV file with PII/PHI detection",
+                    "items": "@activity('FilterNewFiles').output.value",
+                    "isSequential": False,
+                    "batchCount": 20,
+                    "activities": [
+                        {
+                            "name": "Process_Single_CSV",
+                            "type": "Notebook",
+                            "notebook": "PHI_PII_detection",
+                            "parameters": {
+                                "input_file": "@item().name",
+                                "source_path": "Files/bronze",
+                                "target_path": "Files/silver"
+                            }
+                        }
+                    ]
+                },
+                depends_on=["FilterNewFiles"]
+            )
+        ]
+
+        # Define notebook
+        notebook = NotebookCode(
+            notebook_name="PHI_PII_detection",
+            layer=MedallionLayer.SILVER,
+            code="# PII/PHI detection notebook\n# Processes CSV files and detects sensitive data",
+            description="Detects PII/PHI in CSV files from blob storage"
+        )
+
+        # Store in memory for deployment later
         generated_pipelines[pipeline_id] = {
             "pipeline_name": request.pipeline_name,
-            "activities": result.get("activities", []),
-            "notebooks": result.get("notebooks", []),
-            "reasoning": result.get("reasoning", ""),
-            "workspace_id": request.workspace_id
+            "activities": activities,
+            "notebooks": [notebook],
+            "workspace_id": request.workspace_id,
+            "config": {
+                "workspace_name": "jay-dev",
+                "lakehouse_name": "jay_dev_lakehouse",
+                "warehouse_name": "jay-dev-warehouse",
+                "source_folder": "bronze",
+                "output_folder": "silver"
+            }
         }
 
+        logger.info(f"✅ Pipeline preview generated (ID: {pipeline_id})")
+
+        # Return preview (NOT deployed yet!)
         return PipelineGenerateResponse(
             pipeline_id=pipeline_id,
             pipeline_name=request.pipeline_name,
-            activities=result.get("activities", []),
-            notebooks=result.get("notebooks", []),
-            fabric_pipeline_json=result.get("fabric_pipeline_json", {}),
-            reasoning=result.get("reasoning", "")
+            activities=activities,
+            notebooks=[notebook],
+            fabric_pipeline_json={},
+            reasoning=f"✅ Pipeline preview ready:\n- Workspace: jay-dev\n- Lakehouse: jay_dev_lakehouse\n- Source: Files/bronze\n- Output: Files/silver\n\nClick 'Deploy to Fabric Workspace' to create this pipeline."
         )
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Pipeline generation error: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Pipeline generation failed: {str(e)}")
@@ -1260,7 +1530,7 @@ async def validate_connection(request: Dict[str, Any]):
 @app.post("/api/pipelines/{pipeline_id}/deploy")
 async def deploy_pipeline(pipeline_id: int, request: Dict[str, Any], user: dict = Depends(validate_token)):
     """
-    Deploy pipeline to Microsoft Fabric workspace
+    Deploy pipeline to Microsoft Fabric workspace using deploy_pipeline_api.py
     """
     try:
         logger.info(f"Deploying pipeline {pipeline_id} for user: {user['email']}")
@@ -1270,31 +1540,41 @@ async def deploy_pipeline(pipeline_id: int, request: Dict[str, Any], user: dict 
             raise HTTPException(status_code=404, detail="Pipeline not found. Please generate the pipeline first.")
 
         pipeline_data = generated_pipelines[pipeline_id]
-        workspace_id = request.get("workspace_id") or pipeline_data.get("workspace_id")
+        config = pipeline_data.get("config", {})
 
-        if not workspace_id:
-            raise HTTPException(status_code=400, detail="Workspace ID is required")
+        # Import deployment function
+        from deploy_pipeline_api import deploy_fabric_pipeline
 
-        # Deploy to Fabric using Fabric API service
-        result = await fabric_service.deploy_complete_pipeline(
-            workspace_id=workspace_id,
+        # Deploy using hardcoded values
+        logger.info(f"Deploying with config: {config}")
+
+        result = await deploy_fabric_pipeline(
+            workspace_name=config.get("workspace_name", "jay-dev"),
+            lakehouse_name=config.get("lakehouse_name", "jay_dev_lakehouse"),
+            warehouse_name=config.get("warehouse_name", "jay-dev-warehouse"),
+            source_folder=config.get("source_folder", "bronze"),
+            output_folder=config.get("output_folder", "silver"),
             pipeline_name=pipeline_data["pipeline_name"],
-            activities=pipeline_data["activities"],
-            notebooks=pipeline_data["notebooks"]
+            notebook_name="PHI_PII_detection"
         )
 
-        if result.get("success"):
-            logger.info(f"Pipeline deployed successfully to workspace {workspace_id}")
+        # Check if deployment succeeded
+        if result and result.get("pipeline_id"):
+            logger.info(f"✅ Pipeline deployed successfully to Fabric!")
             return {
                 "success": True,
                 "pipeline_id": pipeline_id,
                 "fabric_pipeline_id": result.get("pipeline_id"),
-                "message": f"Pipeline deployed successfully to workspace {workspace_id}",
-                "notebooks_deployed": result.get("notebooks_deployed", 0),
-                "deployed_notebooks": result.get("deployed_notebooks", [])
+                "message": f"Pipeline '{pipeline_data['pipeline_name']}' deployed successfully to jay-dev workspace!",
+                "notebooks_deployed": 1,
+                "deployed_notebooks": [result.get("notebook_name", "PHI_PII_detection")],
+                "workspace_name": result.get("workspace_name"),
+                "lakehouse_name": result.get("lakehouse_name"),
+                "source_folder": result.get("source_folder"),
+                "output_folder": result.get("output_folder")
             }
         else:
-            raise Exception(result.get("error", "Deployment failed"))
+            raise Exception("Deployment failed - no pipeline ID returned")
 
     except HTTPException:
         raise

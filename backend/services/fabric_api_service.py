@@ -24,10 +24,8 @@ class FabricAPIService:
     async def get_access_token(self) -> str:
         """
         Get OAuth2 access token for Fabric API
+        Note: Token is fetched fresh each time to avoid expiration issues
         """
-        if self.access_token:
-            return self.access_token
-
         token_url = f"https://login.microsoftonline.com/{self.tenant_id}/oauth2/v2.0/token"
 
         data = {
@@ -41,9 +39,9 @@ class FabricAPIService:
             response = await client.post(token_url, data=data)
             response.raise_for_status()
             token_data = response.json()
-            self.access_token = token_data["access_token"]
-            logger.info("Successfully obtained Fabric API access token")
-            return self.access_token
+            access_token = token_data["access_token"]
+            logger.info("Successfully obtained fresh Fabric API access token")
+            return access_token
 
     async def list_workspaces(self) -> List[Dict[str, Any]]:
         """
@@ -386,16 +384,20 @@ class FabricAPIService:
     def _generate_get_metadata_activity(
         self,
         activity_name: str,
-        dataset_config: Dict[str, Any] = None,
+        workspace_id: str = None,
+        lakehouse_id: str = None,
+        folder_path: str = None,
         dataset_name: str = None,
         depends_on: Optional[List[str]] = None
     ) -> Dict[str, Any]:
         """
-        Generate Get Metadata activity with support for both dataset reference and inline dataset settings
+        Generate Get Metadata activity with inline Lakehouse connection
 
         Args:
             activity_name: Name of the activity
-            dataset_config: Inline dataset configuration (for Lakehouse, blob, etc.)
+            workspace_id: Fabric workspace ID
+            lakehouse_id: Lakehouse artifact ID
+            folder_path: Path relative to Files/ (e.g., "bronze")
             dataset_name: Name of the dataset to reference (legacy support)
             depends_on: List of activity names this depends on
 
@@ -418,16 +420,24 @@ class FabricAPIService:
             }
         }
 
-        # Use inline datasetSettings if provided (modern approach for Lakehouse)
-        if dataset_config:
-            activity["typeProperties"]["datasetSettings"] = dataset_config
-            activity["typeProperties"]["storeSettings"] = {
-                "type": "LakehouseReadSettings",
-                "recursive": True,
-                "enablePartitionDiscovery": False
-            }
-            activity["typeProperties"]["formatSettings"] = {
-                "type": "DelimitedTextReadSettings"
+        # Use inline Lakehouse datasetSettings (modern approach)
+        if workspace_id and lakehouse_id:
+            activity["typeProperties"]["datasetSettings"] = {
+                "type": "LakehouseFolder",
+                "linkedService": {
+                    "name": "LakehouseRef",
+                    "properties": {
+                        "type": "Lakehouse",
+                        "typeProperties": {
+                            "workspaceId": workspace_id,
+                            "artifactId": lakehouse_id,
+                            "rootFolder": "Files"
+                        }
+                    }
+                },
+                "typeProperties": {
+                    "folderPath": folder_path or ""
+                }
             }
         # Fall back to dataset reference (legacy approach)
         elif dataset_name:
