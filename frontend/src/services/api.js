@@ -5,7 +5,7 @@ const WORKSPACE_API_URL = process.env.REACT_APP_WORKSPACE_API_URL || 'https://fa
 
 // Create axios instance for pipeline builder backend
 const api = axios.create({
-  baseURL: API_BASE_URL,
+  baseURL: WORKSPACE_API_URL,
   headers: {
     'Content-Type': 'application/json',
   },

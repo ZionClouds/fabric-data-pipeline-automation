@@ -17,7 +17,6 @@ from services.claude_ai_service import ClaudeAIService
 from services.azure_openai_service import AzureOpenAIService
 from services.azure_ai_agent_service import AzureAIAgentService
 from services.fabric_api_service import FabricAPIService
-from services.deployment_utils import FabricDeploymentService
 from services.conversation_context import context_manager
 from services.proactive_suggestions import proactive_service
 from services.medallion_architect import medallion_service
@@ -53,29 +52,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Request logging middleware
-@app.middleware("http")
-async def log_requests(request, call_next):
-    """Log all incoming HTTP requests"""
-    logger.info(f"\n{'*'*100}")
-    logger.info(f"[REQUEST] {request.method} {request.url.path}")
-    logger.info(f"[REQUEST] Client: {request.client.host if request.client else 'Unknown'}")
-    logger.info(f"[REQUEST] Headers: Authorization={'Present' if request.headers.get('authorization') else 'Missing'}")
-    logger.info(f"{'*'*100}")
-
-    response = await call_next(request)
-
-    logger.info(f"[RESPONSE] Status: {response.status_code} for {request.method} {request.url.path}")
-    logger.info(f"{'*'*100}\n")
-
-    return response
-
 # Initialize services
-logger.info("Initializing services...")
 claude_service = ClaudeAIService()
 fabric_service = FabricAPIService()
-deployment_service = FabricDeploymentService(fabric_service)
-logger.info("[OK] Core services initialized")
 
 # Initialize Azure OpenAI service (GPT-5 with Bing Search)
 azure_openai_service = AzureOpenAIService(
@@ -364,11 +343,7 @@ async def chat_with_ai(request: ChatRequest, user: dict = Depends(validate_token
     - Interrupts with important recommendations
     """
     try:
-        logger.info(f"\n{'='*100}")
-        logger.info(f"[CHAT] Incoming chat request from: {user['email']}")
-        logger.info(f"[CHAT] Workspace ID: {request.workspace_id}")
-        logger.info(f"[CHAT] Message count: {len(request.messages)}")
-        logger.info(f"{'='*100}")
+        logger.info(f"Proactive Agent chat request for workspace: {request.workspace_id} by user: {user['email']}")
 
         # Get or create conversation context for this user
         session_id = f"{user['email']}_{request.workspace_id}"
@@ -546,11 +521,9 @@ This will let you access your blob data directly without copying it first.
         # Update context with agent response
         conv_context.update_context(user_message, response.get("content", ""))
 
-        logger.info(f"[CHAT] Agent response received. Bing Grounding used: {response.get('bing_grounding_used', False)}")
-        logger.info(f"[CHAT] Conversation stage: {conv_context.context['current_stage']}")
-        logger.info(f"[CHAT] Pipeline context: {conv_context.get_summary()}")
-        logger.info(f"[CHAT] [OK] Response ready, sending to client")
-        logger.info(f"{'='*100}\n")
+        logger.info(f"Agent response received. Bing Grounding used: {response.get('bing_grounding_used', False)}")
+        logger.info(f"Conversation stage: {conv_context.context['current_stage']}")
+        logger.info(f"Pipeline context: {conv_context.get_summary()}")
 
         return ChatResponse(
             role="assistant",
@@ -563,9 +536,7 @@ This will let you access your blob data directly without copying it first.
         )
 
     except Exception as e:
-        logger.error(f"\n{'='*100}")
-        logger.error(f"[CHAT] [ERROR] Exception occurred: {str(e)}")
-        logger.error(f"{'='*100}\n")
+        logger.error(f"Proactive Agent chat error: {str(e)}")
         raise HTTPException(status_code=500, detail=f"AI service error: {str(e)}")
 
 
@@ -583,11 +554,7 @@ async def chat_with_claude(request: ChatRequest, user: dict = Depends(validate_t
     For general pipeline design and latest documentation, use /api/ai/chat (GPT-5)
     """
     try:
-        logger.info(f"\n{'='*100}")
-        logger.info(f"[CLAUDE] Incoming Claude chat request from: {user['email']}")
-        logger.info(f"[CLAUDE] Workspace ID: {request.workspace_id}")
-        logger.info(f"[CLAUDE] Message count: {len(request.messages)}")
-        logger.info(f"{'='*100}")
+        logger.info(f"Claude chat request for workspace: {request.workspace_id} by user: {user['email']}")
 
         response = await claude_service.chat(
             messages=request.messages,
@@ -1487,234 +1454,6 @@ async def generate_file_processing_pipeline(request: FileProcessingPipelineReque
             error=str(e),
             message="Pipeline generation failed"
         )
-
-# ============================================================================
-# COMPREHENSIVE DEPLOYMENT ENDPOINTS
-# ============================================================================
-
-@app.post("/api/deploy/notebook")
-async def deploy_notebook(
-    request: Dict[str, Any],
-    user: dict = Depends(validate_token)
-):
-    """
-    Deploy a notebook with lakehouse attachment
-
-    Request body:
-    {
-        "workspace_id": "workspace-guid",
-        "notebook_name": "MyNotebook",
-        "python_code": "# Your Python code here",
-        "lakehouse_id": "lakehouse-guid",
-        "parameters": {"param1": "value1"}  # Optional
-    }
-    """
-    try:
-        logger.info(f"\n{'='*100}")
-        logger.info(f"[API] Notebook deployment requested by: {user['email']}")
-        logger.info(f"{'='*100}")
-
-        workspace_id = request.get("workspace_id")
-        notebook_name = request.get("notebook_name")
-        python_code = request.get("python_code")
-        lakehouse_id = request.get("lakehouse_id")
-        parameters = request.get("parameters")
-
-        # Validate required fields
-        if not all([workspace_id, notebook_name, python_code, lakehouse_id]):
-            logger.error("[API] Missing required fields")
-            raise HTTPException(
-                status_code=400,
-                detail="Missing required fields: workspace_id, notebook_name, python_code, lakehouse_id"
-            )
-
-        logger.info(f"[API] Workspace: {workspace_id}")
-        logger.info(f"[API] Notebook: {notebook_name}")
-        logger.info(f"[API] Lakehouse: {lakehouse_id}")
-        logger.info(f"[API] Code length: {len(python_code)} chars")
-
-        # Deploy notebook
-        result = await deployment_service.deploy_notebook_with_lakehouse(
-            workspace_id=workspace_id,
-            notebook_name=notebook_name,
-            python_code=python_code,
-            lakehouse_id=lakehouse_id,
-            parameters=parameters
-        )
-
-        if result["success"]:
-            logger.info(f"[API] [OK] Notebook deployed successfully")
-            return result
-        else:
-            logger.error(f"[API] [ERROR] Notebook deployment failed: {result.get('error')}")
-            raise HTTPException(status_code=500, detail=result.get("message"))
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"[API] [ERROR] Exception: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.post("/api/deploy/warehouse-connection")
-async def create_warehouse_connection(
-    request: Dict[str, Any],
-    user: dict = Depends(validate_token)
-):
-    """
-    Create a connection to a Fabric Warehouse
-
-    Request body:
-    {
-        "connection_name": "MyWarehouseConnection",
-        "warehouse_sql_endpoint": "xxx.datawarehouse.fabric.microsoft.com",
-        "database_name": "my_warehouse"
-    }
-    """
-    try:
-        logger.info(f"\n{'='*100}")
-        logger.info(f"[API] Warehouse connection requested by: {user['email']}")
-        logger.info(f"{'='*100}")
-
-        connection_name = request.get("connection_name")
-        warehouse_sql_endpoint = request.get("warehouse_sql_endpoint")
-        database_name = request.get("database_name")
-
-        # Validate required fields
-        if not all([connection_name, warehouse_sql_endpoint, database_name]):
-            logger.error("[API] Missing required fields")
-            raise HTTPException(
-                status_code=400,
-                detail="Missing required fields: connection_name, warehouse_sql_endpoint, database_name"
-            )
-
-        logger.info(f"[API] Connection name: {connection_name}")
-        logger.info(f"[API] SQL endpoint: {warehouse_sql_endpoint}")
-        logger.info(f"[API] Database: {database_name}")
-
-        # Create connection
-        result = await deployment_service.create_warehouse_connection(
-            connection_name=connection_name,
-            warehouse_sql_endpoint=warehouse_sql_endpoint,
-            database_name=database_name
-        )
-
-        if result["success"]:
-            logger.info(f"[API] [OK] Warehouse connection created/found")
-            return result
-        else:
-            logger.error(f"[API] [ERROR] Connection failed: {result.get('error')}")
-            raise HTTPException(status_code=500, detail=result.get("message"))
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"[API] [ERROR] Exception: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.post("/api/deploy/find-or-create")
-async def find_or_create_item(
-    request: Dict[str, Any],
-    user: dict = Depends(validate_token)
-):
-    """
-    Find an existing item or create it if it doesn't exist
-
-    Request body:
-    {
-        "workspace_id": "workspace-guid",
-        "item_type": "Notebook|DataPipeline|Warehouse|Lakehouse",
-        "item_name": "MyItem"
-    }
-    """
-    try:
-        logger.info(f"\n{'='*100}")
-        logger.info(f"[API] Find/Create item requested by: {user['email']}")
-        logger.info(f"{'='*100}")
-
-        workspace_id = request.get("workspace_id")
-        item_type = request.get("item_type")
-        item_name = request.get("item_name")
-
-        # Validate required fields
-        if not all([workspace_id, item_type, item_name]):
-            logger.error("[API] Missing required fields")
-            raise HTTPException(
-                status_code=400,
-                detail="Missing required fields: workspace_id, item_type, item_name"
-            )
-
-        # Validate item type
-        valid_types = ["Notebook", "DataPipeline", "Warehouse", "Lakehouse"]
-        if item_type not in valid_types:
-            logger.error(f"[API] Invalid item type: {item_type}")
-            raise HTTPException(
-                status_code=400,
-                detail=f"Invalid item_type. Must be one of: {', '.join(valid_types)}"
-            )
-
-        logger.info(f"[API] Workspace: {workspace_id}")
-        logger.info(f"[API] Item type: {item_type}")
-        logger.info(f"[API] Item name: {item_name}")
-
-        # Find or create item
-        result = await deployment_service.find_or_create_item(
-            workspace_id=workspace_id,
-            item_type=item_type,
-            item_name=item_name
-        )
-
-        if result["success"]:
-            logger.info(f"[API] [OK] Item found/created: {result.get('item_id')}")
-            return result
-        else:
-            logger.error(f"[API] [ERROR] Find/create failed: {result.get('error')}")
-            raise HTTPException(status_code=500, detail=result.get("message"))
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"[API] [ERROR] Exception: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.get("/api/deploy/warehouse/{workspace_id}/{warehouse_id}/endpoint")
-async def get_warehouse_endpoint(
-    workspace_id: str,
-    warehouse_id: str,
-    user: dict = Depends(validate_token)
-):
-    """
-    Get SQL endpoint for a warehouse
-    """
-    try:
-        logger.info(f"[API] Get warehouse endpoint requested by: {user['email']}")
-        logger.info(f"[API] Workspace: {workspace_id}, Warehouse: {warehouse_id}")
-
-        endpoint = await deployment_service.get_warehouse_sql_endpoint(
-            workspace_id=workspace_id,
-            warehouse_id=warehouse_id
-        )
-
-        if endpoint:
-            logger.info(f"[API] [OK] SQL endpoint found: {endpoint}")
-            return {
-                "success": True,
-                "sql_endpoint": endpoint,
-                "warehouse_id": warehouse_id
-            }
-        else:
-            logger.error(f"[API] [ERROR] SQL endpoint not found")
-            raise HTTPException(status_code=404, detail="SQL endpoint not found")
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"[API] [ERROR] Exception: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
-
-# ============================================================================
 
 if __name__ == "__main__":
     import uvicorn
