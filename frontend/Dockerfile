@@ -41,17 +41,20 @@ COPY --from=build /app/build /usr/share/nginx/html
 RUN echo 'window._env_ = { REACT_APP_API_URL: "PLACEHOLDER_API_URL" };' \
       > /usr/share/nginx/html/env-config.js
 
-# Add startup script
-RUN echo '#!/bin/sh\n\
+# Add startup script for runtime environment injection
+RUN printf '#!/bin/sh\n\
 set -e\n\
 echo "[INFO] Starting Nginx on port 8080..."\n\
-sed -i "s/listen 80;/listen 8080;/g" /etc/nginx/conf.d/default.conf\n\
-if [ -z "$REACT_APP_API_URL" ]; then\n\
-  echo "[WARN] REACT_APP_API_URL not set; using placeholder.";\n\
+\n\
+# Inject runtime environment variables into env-config.js\n\
+if [ -n "$REACT_APP_API_URL" ]; then\n\
+  echo "[INFO] Injecting REACT_APP_API_URL: $REACT_APP_API_URL"\n\
+  sed -i "s|PLACEHOLDER_API_URL|$REACT_APP_API_URL|g" /usr/share/nginx/html/env-config.js\n\
 else\n\
-  sed -i "s|PLACEHOLDER_API_URL|$REACT_APP_API_URL|g" /usr/share/nginx/html/env-config.js;\n\
+  echo "[WARN] REACT_APP_API_URL not set at runtime; using build-time value or placeholder."\n\
 fi\n\
-exec nginx -g \"daemon off;\"' > /docker-entrypoint.sh \
+\n\
+exec nginx -g "daemon off;"\n' > /docker-entrypoint.sh \
     && chmod +x /docker-entrypoint.sh
 
 # Environment

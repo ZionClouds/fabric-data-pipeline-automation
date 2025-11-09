@@ -73,6 +73,11 @@ services:
     container_name: fabric-frontend
     ports:
       - "3000:8080"
+    environment:
+      # Runtime environment variables for dynamic API URL injection
+      - REACT_APP_API_URL=http://localhost:8080
+      - REACT_APP_WORKSPACE_API_URL=http://localhost:8080
+      - PORT=8080
     depends_on:
       - backend
     restart: unless-stopped

@@ -238,7 +238,11 @@ jobs:
             exit 1
           fi
 
+          echo "Building frontend with backend URL: $BACKEND_URL"
+
           docker build --no-cache \
+            --build-arg REACT_APP_API_URL="$BACKEND_URL" \
+            --build-arg REACT_APP_WORKSPACE_API_URL="$BACKEND_URL" \
             -t $ACR_SERVER/$FRONTEND_APP_NAME:$IMAGE_TAG \
             -t $ACR_SERVER/$FRONTEND_APP_NAME:latest \
             ./frontend
