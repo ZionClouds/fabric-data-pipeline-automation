@@ -519,9 +519,14 @@ const PipelinePreview = () => {
                                 <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 0.5, fontSize: '0.85rem' }}>
                                   {activity.name}
                                 </Typography>
-                                <Typography variant="body2" color="text.secondary" sx={{ mb: 1, fontSize: '0.8rem' }}>
+                                <Typography variant="body2" color="text.secondary" sx={{ mb: 0.5, fontSize: '0.8rem' }}>
                                   <strong>Type:</strong> {activity.type}
                                 </Typography>
+                                {activity.config?.description && (
+                                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1, fontSize: '0.75rem', fontStyle: 'italic' }}>
+                                    {activity.config.description}
+                                  </Typography>
+                                )}
                                 {activity.depends_on && activity.depends_on.length > 0 && (
                                   <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
                                     <Typography variant="caption" color="text.secondary" sx={{ mr: 0.5 }}>

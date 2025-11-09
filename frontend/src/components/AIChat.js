@@ -85,8 +85,13 @@ const AIChat = () => {
       // Call Claude API
       const response = await pipelineApi.chat(requestData);
 
+      // Ensure content is a string
+      const content = typeof response.data.content === 'string'
+        ? response.data.content
+        : JSON.stringify(response.data.content);
+
       // Add AI response
-      addChatMessage('assistant', response.data.content);
+      addChatMessage('assistant', content);
 
       // If response contains pipeline preview, update current pipeline
       if (response.data.pipeline_preview) {
@@ -522,7 +527,11 @@ const AIChat = () => {
                             )
                           }}
                         >
-                          {message.content}
+                          {typeof message.content === 'string'
+                            ? message.content
+                            : (typeof message.content === 'object'
+                                ? JSON.stringify(message.content)
+                                : String(message.content))}
                         </ReactMarkdown>
                       </Paper>
                       
