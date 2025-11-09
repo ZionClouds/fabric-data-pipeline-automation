@@ -42,7 +42,7 @@ services:
       - FABRIC_CLIENT_SECRET=${FABRIC_CLIENT_SECRET}
 
       # Workspace Backend Integration
-      - WORKSPACE_BACKEND_URL=${WORKSPACE_BACKEND_URL:-https://fabricbackend.lemonfield-12c57489.eastus.azurecontainerapps.io}
+      - WORKSPACE_BACKEND_URL=${WORKSPACE_BACKEND_URL:-https://fabric-pipeline-backend.delightfulplant-1c861d44.eastus.azurecontainerapps.io}
 
       # Development Mode
       - DISABLE_AUTH=${DISABLE_AUTH:-true}

@@ -229,7 +229,7 @@ jobs:
       - name: Enable ACR Admin Credentials
         run: az acr update -n $ACR_NAME --admin-enabled true
 
-      - name: Build and Push Frontend Image with Build Args
+      - name: Build and Push Frontend Image
         run: |
           az acr login --name $ACR_NAME
 
@@ -239,8 +239,6 @@ jobs:
           fi
 
           docker build --no-cache \
-            --build-arg REACT_APP_API_URL=$BACKEND_URL \
-            --build-arg REACT_APP_WORKSPACE_API_URL=$BACKEND_URL \
             -t $ACR_SERVER/$FRONTEND_APP_NAME:$IMAGE_TAG \
             -t $ACR_SERVER/$FRONTEND_APP_NAME:latest \
             ./frontend
@@ -273,12 +271,20 @@ jobs:
               --max-replicas 3 \
               --registry-server "$ACR_SERVER" \
               --registry-username "$(az acr credential show --name $ACR_NAME --query 'username' -o tsv)" \
-              --registry-password "$(az acr credential show --name $ACR_NAME --query 'passwords[0].value' -o tsv)"
+              --registry-password "$(az acr credential show --name $ACR_NAME --query 'passwords[0].value' -o tsv)" \
+              --env-vars \
+                REACT_APP_API_URL="$BACKEND_URL" \
+                REACT_APP_WORKSPACE_API_URL="$BACKEND_URL" \
+                PORT="8080"
           else
             az containerapp update \
               --name "$FRONTEND_APP_NAME" \
               --resource-group "$RESOURCE_GROUP" \
-              --image "$ACR_SERVER/$FRONTEND_APP_NAME:$IMAGE_TAG"
+              --image "$ACR_SERVER/$FRONTEND_APP_NAME:$IMAGE_TAG" \
+              --set-env-vars \
+                REACT_APP_API_URL="$BACKEND_URL" \
+                REACT_APP_WORKSPACE_API_URL="$BACKEND_URL" \
+                PORT="8080"
           fi
 
       - name: Output Frontend App URL
