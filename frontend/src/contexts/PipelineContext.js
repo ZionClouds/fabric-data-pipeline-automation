@@ -11,7 +11,8 @@ export const PipelineProvider = ({ children }) => {
     tables: [],
     transformations: [],
     use_medallion: true,
-    schedule: 'manual'
+    schedule: 'manual',
+    pipeline_name: null
   });
 
   const addChatMessage = (role, content) => {
@@ -66,7 +67,8 @@ export const PipelineProvider = ({ children }) => {
       tables: [],
       transformations: [],
       use_medallion: true,
-      schedule: 'manual'
+      schedule: 'manual',
+      pipeline_name: null
     });
   };
 

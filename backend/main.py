@@ -827,6 +827,10 @@ async def generate_pipeline(request: PipelineGenerateRequest, user: dict = Depen
     try:
         logger.info(f"Generating pipeline: {request.pipeline_name} for user: {user['email']}")
 
+        # Use the pipeline name directly from the request (now passed from frontend chat context)
+        pipeline_name = request.pipeline_name
+        logger.info(f"Using pipeline name: {pipeline_name}")
+
         # JUST GENERATE PREVIEW - Don't deploy yet!
         logger.info("Generating pipeline preview with hardcoded values")
 
@@ -933,7 +937,7 @@ async def generate_pipeline(request: PipelineGenerateRequest, user: dict = Depen
 
         # Store in memory for deployment later
         generated_pipelines[pipeline_id] = {
-            "pipeline_name": request.pipeline_name,
+            "pipeline_name": pipeline_name,
             "activities": activities,
             "notebooks": [notebook],
             "workspace_id": request.workspace_id,
@@ -951,7 +955,7 @@ async def generate_pipeline(request: PipelineGenerateRequest, user: dict = Depen
         # Return preview (NOT deployed yet!)
         return PipelineGenerateResponse(
             pipeline_id=pipeline_id,
-            pipeline_name=request.pipeline_name,
+            pipeline_name=pipeline_name,
             activities=activities,
             notebooks=[notebook],
             fabric_pipeline_json={},

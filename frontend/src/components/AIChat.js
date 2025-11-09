@@ -25,7 +25,7 @@ import {
 } from '@mui/icons-material';
 
 const AIChat = () => {
-  const { selectedWorkspace, chatMessages, addChatMessage, setCurrentPipeline, clearChat } = usePipeline();
+  const { selectedWorkspace, chatMessages, addChatMessage, setCurrentPipeline, clearChat, updatePipelineConfig } = usePipeline();
   const { user } = useAuth();
   const [inputMessage, setInputMessage] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -92,6 +92,14 @@ const AIChat = () => {
 
       // Add AI response
       addChatMessage('assistant', content);
+
+      // Extract pipeline name from summary if present
+      const pipelineNameMatch = content.match(/Pipeline Name:\s*(.+)/i);
+      if (pipelineNameMatch && pipelineNameMatch[1]) {
+        const extractedPipelineName = pipelineNameMatch[1].trim();
+        console.log('Extracted pipeline name from chat:', extractedPipelineName);
+        updatePipelineConfig({ pipeline_name: extractedPipelineName });
+      }
 
       // If response contains pipeline preview, update current pipeline
       if (response.data.pipeline_preview) {

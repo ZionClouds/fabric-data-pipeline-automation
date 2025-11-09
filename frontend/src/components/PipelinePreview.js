@@ -33,7 +33,7 @@ import {
 } from '@mui/icons-material';
 
 const PipelinePreview = () => {
-  const { selectedWorkspace, chatMessages } = usePipeline();
+  const { selectedWorkspace, chatMessages, pipelineConfig } = usePipeline();
   const { user } = useAuth();
   const [isGenerating, setIsGenerating] = useState(false);
   const [isDeploying, setIsDeploying] = useState(false);
@@ -62,9 +62,13 @@ const PipelinePreview = () => {
       // Extract context from chat messages
       const chatContext = chatMessages.map(msg => `${msg.role}: ${msg.content}`).join('\n\n');
 
+      // Use pipeline name from chat context, or generate one if not available
+      const pipelineName = pipelineConfig.pipeline_name || ('Pipeline_' + Date.now());
+      console.log('Using pipeline name for generation:', pipelineName);
+
       const response = await pipelineApi.generatePipeline({
         workspace_id: selectedWorkspace.id,
-        pipeline_name: 'Pipeline_' + Date.now(),
+        pipeline_name: pipelineName,
         source_type: 'blob_storage',  // Default to blob storage for now
         source_config: {
           chat_context: chatContext  // Send entire conversation
