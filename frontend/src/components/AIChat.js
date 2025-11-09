@@ -25,7 +25,7 @@ import {
 } from '@mui/icons-material';
 
 const AIChat = () => {
-  const { selectedWorkspace, chatMessages, addChatMessage, setCurrentPipeline, clearChat } = usePipeline();
+  const { selectedWorkspace, chatMessages, addChatMessage, setCurrentPipeline, clearChat, updatePipelineConfig } = usePipeline();
   const { user } = useAuth();
   const [inputMessage, setInputMessage] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -85,8 +85,21 @@ const AIChat = () => {
       // Call Claude API
       const response = await pipelineApi.chat(requestData);
 
+      // Ensure content is a string
+      const content = typeof response.data.content === 'string'
+        ? response.data.content
+        : JSON.stringify(response.data.content);
+
       // Add AI response
-      addChatMessage('assistant', response.data.content);
+      addChatMessage('assistant', content);
+
+      // Extract pipeline name from summary if present
+      const pipelineNameMatch = content.match(/Pipeline Name:\s*(.+)/i);
+      if (pipelineNameMatch && pipelineNameMatch[1]) {
+        const extractedPipelineName = pipelineNameMatch[1].trim();
+        console.log('Extracted pipeline name from chat:', extractedPipelineName);
+        updatePipelineConfig({ pipeline_name: extractedPipelineName });
+      }
 
       // If response contains pipeline preview, update current pipeline
       if (response.data.pipeline_preview) {
@@ -522,7 +535,11 @@ const AIChat = () => {
                             )
                           }}
                         >
-                          {message.content}
+                          {typeof message.content === 'string'
+                            ? message.content
+                            : (typeof message.content === 'object'
+                                ? JSON.stringify(message.content)
+                                : String(message.content))}
                         </ReactMarkdown>
                       </Paper>
                       
