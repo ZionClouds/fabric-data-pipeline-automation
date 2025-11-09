@@ -1,0 +1,62 @@
+# Git
+.git
+.gitignore
+.github
+
+# Python
+__pycache__
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+ENV/
+*.egg-info/
+dist/
+build/
+
+# Node
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Testing
+.coverage
+.pytest_cache/
+htmlcov/
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+backend/settings.py
+settings.py
+
+# Documentation
+*.md
+docs/
+
+# Knowledge base
+knowledge/
+
+# Azure
+*.PublishSettings
+*.pubxml
+*publish-profile.xml

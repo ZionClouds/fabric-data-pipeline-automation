@@ -15,9 +15,9 @@ from azure.identity import ClientSecretCredential
 import sys
 import os
 
-# Add parent directory to path to import config
+# Add parent directory to path to import settings
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-import config
+import settings
 
 logger = logging.getLogger(__name__)
 
@@ -46,11 +46,11 @@ class AzureAIAgentService:
             model_deployment: Model deployment name
         """
         # Initialize the AI Project client with Service Principal credentials
-        # This uses the service principal from config (FABRIC_CLIENT_ID, FABRIC_TENANT_ID, FABRIC_CLIENT_SECRET)
+        # This uses the service principal from settings (FABRIC_CLIENT_ID, FABRIC_TENANT_ID, FABRIC_CLIENT_SECRET)
         credential = ClientSecretCredential(
-            tenant_id=config.FABRIC_TENANT_ID,
-            client_id=config.FABRIC_CLIENT_ID,
-            client_secret=config.FABRIC_CLIENT_SECRET
+            tenant_id=settings.FABRIC_TENANT_ID,
+            client_id=settings.FABRIC_CLIENT_ID,
+            client_secret=settings.FABRIC_CLIENT_SECRET
         )
 
         self.client = AIProjectClient(

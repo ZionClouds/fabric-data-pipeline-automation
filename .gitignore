@@ -1,7 +1,20 @@
-# Environment variables
+# Environment variables and settings with secrets
 .env
 .env.local
 .env.*.local
+backend/settings.py
+settings.py
+
+# Azure publish profiles (contains deployment credentials)
+*.PublishSettings
+*.pubxml
+*publish-profile.xml
+
+# Docker
+.env
+docker-compose.override.yml
+
+
 
 # Python
 __pycache__/

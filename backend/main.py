@@ -11,8 +11,8 @@ import ssl
 import certifi
 import os
 
-# Import config and services
-import config
+# Import settings and services
+import settings
 from services.claude_ai_service import ClaudeAIService
 from services.azure_openai_service import AzureOpenAIService
 from services.azure_ai_agent_service import AzureAIAgentService
@@ -25,8 +25,12 @@ from models.pipeline_models import (
     PipelineGenerateRequest, PipelineGenerateResponse,
     LinkedServiceRequest, LinkedServiceResponse,
     AutomatedPipelineGenerateRequest, AutomatedPipelineGenerateResponse,
-    ConnectionConfig, PipelineArchitecture, LayerConfig
+    ConnectionConfig, PipelineArchitecture, LayerConfig,
+    FileProcessingPipelineRequest, FileProcessingPipelineResponse
 )
+
+# Import fabric deployment router
+from fabric_deployment_endpoint import router as fabric_router
 
 # In-memory storage for generated pipelines (temporary - should use database in production)
 generated_pipelines = {}
@@ -45,11 +49,14 @@ app = FastAPI(
 # CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=config.ALLOWED_ORIGINS,
+    allow_origins=settings.ALLOWED_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Include Fabric deployment router
+app.include_router(fabric_router)
 
 # Initialize services
 claude_service = ClaudeAIService()
@@ -57,19 +64,19 @@ fabric_service = FabricAPIService()
 
 # Initialize Azure OpenAI service (GPT-5 with Bing Search)
 azure_openai_service = AzureOpenAIService(
-    azure_endpoint=config.AZURE_OPENAI_ENDPOINT,
-    api_key=config.AZURE_OPENAI_API_KEY,
-    deployment_name=config.AZURE_OPENAI_DEPLOYMENT,
-    api_version=config.AZURE_OPENAI_API_VERSION,
-    bing_api_key=config.BING_SEARCH_API_KEY,
-    bing_endpoint=config.BING_SEARCH_ENDPOINT
+    azure_endpoint=settings.AZURE_OPENAI_ENDPOINT,
+    api_key=settings.AZURE_OPENAI_API_KEY,
+    deployment_name=settings.AZURE_OPENAI_DEPLOYMENT,
+    api_version=settings.AZURE_OPENAI_API_VERSION,
+    bing_api_key=settings.BING_SEARCH_API_KEY,
+    bing_endpoint=settings.BING_SEARCH_ENDPOINT
 )
 
 # Initialize Azure AI Agent service (GPT-4o-mini with Bing Grounding via Agents)
 agent_service = AzureAIAgentService(
-    project_endpoint=config.AZURE_AI_PROJECT_ENDPOINT,
-    api_key=config.AZURE_OPENAI_API_KEY,
-    bing_connection_id=config.BING_GROUNDING_CONNECTION_ID,
+    project_endpoint=settings.AZURE_AI_PROJECT_ENDPOINT,
+    api_key=settings.AZURE_OPENAI_API_KEY,
+    bing_connection_id=settings.BING_GROUNDING_CONNECTION_ID,
     model_deployment="gpt-4o-mini-bing"
 )
 
@@ -77,7 +84,7 @@ agent_service = AzureAIAgentService(
 security = HTTPBearer(auto_error=False)
 
 # Microsoft Azure AD configuration
-AZURE_TENANT_ID = config.FABRIC_TENANT_ID
+AZURE_TENANT_ID = settings.FABRIC_TENANT_ID
 JWKS_URL = f"https://login.microsoftonline.com/{AZURE_TENANT_ID}/discovery/v2.0/keys"
 
 # Create SSL context with certifi certificates
@@ -89,7 +96,7 @@ async def validate_token(credentials: HTTPAuthorizationCredentials = Depends(sec
     Validate Microsoft Azure AD JWT token
     """
     # Development mode: bypass authentication
-    if config.DISABLE_AUTH == "true":
+    if settings.DISABLE_AUTH is True or settings.DISABLE_AUTH == "true":
         logger.info("Development mode: bypassing authentication")
         return {"email": "dev@example.com", "name": "Development User", "oid": "dev-user-id"}
 
@@ -101,10 +108,6 @@ async def validate_token(credentials: HTTPAuthorizationCredentials = Depends(sec
     logger.info(f"Validating token: {token[:50]}...")
 
     try:
-        # For development/testing, skip validation if token is 'test'
-        if token == 'test':
-            return {"email": "test@example.com", "name": "Test User"}
-
         # Get signing keys from Microsoft with SSL context
         jwks_client = PyJWKClient(JWKS_URL, ssl_context=ssl_context)
         signing_key = jwks_client.get_signing_key_from_jwt(token)
@@ -123,8 +126,8 @@ async def validate_token(credentials: HTTPAuthorizationCredentials = Depends(sec
         logger.info(f"Token decoded. Issuer: {payload.get('iss')}, Audience: {payload.get('aud')}")
 
         # Verify the app ID is in the token
-        if payload.get("appid") != config.FABRIC_CLIENT_ID and payload.get("azp") != config.FABRIC_CLIENT_ID:
-            logger.warning(f"Token appid: {payload.get('appid')}, Expected: {config.FABRIC_CLIENT_ID}")
+        if payload.get("appid") != settings.FABRIC_CLIENT_ID and payload.get("azp") != settings.FABRIC_CLIENT_ID:
+            logger.warning(f"Token appid: {payload.get('appid')}, Expected: {settings.FABRIC_CLIENT_ID}")
 
         user_email = payload.get("preferred_username") or payload.get("upn") or payload.get("email")
         user_name = payload.get("name")
@@ -147,6 +150,173 @@ async def validate_token(credentials: HTTPAuthorizationCredentials = Depends(sec
         logger.error(f"Token validation error: {str(e)}", exc_info=True)
         raise HTTPException(status_code=401, detail="Authentication failed")
 
+# Helper Functions
+async def create_blob_storage_shortcuts(workspace_id: str) -> Dict[str, Any]:
+    """
+    Check for existing OneLake shortcuts and inform user
+    If shortcuts don't exist, guide user to create them manually (API limitation)
+
+    Returns:
+        Dict with success status, existing shortcuts info
+    """
+    try:
+        # Get lakehouse from workspace
+        lakehouses = await fabric_service.get_workspace_lakehouses(workspace_id)
+
+        if not lakehouses:
+            return {
+                "success": False,
+                "error": "No lakehouse found in workspace",
+                "message": "Please create a lakehouse in your workspace first"
+            }
+
+        lakehouse = lakehouses[0]  # Use first lakehouse
+        lakehouse_id = lakehouse.get("id")
+        lakehouse_name = lakehouse.get("displayName", "Unknown")
+
+        logger.info(f"Using lakehouse: {lakehouse_name} ({lakehouse_id})")
+
+        # Check for existing shortcuts
+        existing_shortcuts = await fabric_service.get_lakehouse_shortcuts(workspace_id, lakehouse_id)
+
+        if existing_shortcuts.get("success"):
+            shortcuts = existing_shortcuts.get("shortcuts", [])
+
+            # Check if bronze and silver shortcuts already exist
+            bronze_exists = any(s.get("name") == "bronze" for s in shortcuts)
+            silver_exists = any(s.get("name") == "silver" for s in shortcuts)
+
+            if bronze_exists and silver_exists:
+                logger.info("Bronze and silver shortcuts already exist")
+                return {
+                    "success": True,
+                    "lakehouse_name": lakehouse_name,
+                    "lakehouse_id": lakehouse_id,
+                    "shortcuts": [
+                        {"name": "bronze", "container": "bronze", "path": "Files/bronze"},
+                        {"name": "silver", "container": "silver", "path": "Files/silver"}
+                    ],
+                    "storage_account": settings.STORAGE_ACCOUNT_NAME,
+                    "already_exists": True,
+                    "message": "Shortcuts already exist in your lakehouse"
+                }
+            elif bronze_exists or silver_exists:
+                logger.info(f"Some shortcuts exist: bronze={bronze_exists}, silver={silver_exists}")
+                # Partial setup - inform user
+                return {
+                    "success": False,
+                    "error": "Partial shortcut setup detected",
+                    "message": f"Found existing shortcuts but not complete. Bronze: {'✓' if bronze_exists else '✗'}, Silver: {'✓' if silver_exists else '✗'}"
+                }
+
+        logger.info(f"No shortcuts found, would need manual creation")
+
+        # Create connection for blob storage using settings
+        import datetime
+        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        connection_name = f"BlobStorage_{settings.STORAGE_ACCOUNT_NAME}_{timestamp}"
+
+        connection_result = await fabric_service.create_connection(
+            workspace_id=workspace_id,
+            connection_name=connection_name,
+            source_type="adls",  # Use ADLS Gen2 for shortcuts
+            connection_config={
+                "account_name": settings.STORAGE_ACCOUNT_NAME,
+                "auth_type": "WorkspaceIdentity"  # Use Workspace Identity for ADLS Gen2
+            }
+        )
+
+        if not connection_result.get("success"):
+            error_msg = connection_result.get("error", "Unknown error")
+            # Check if it's a duplicate connection error
+            if "DuplicateConnectionName" in str(error_msg):
+                logger.warning(f"Connection with similar name already exists, trying with different name...")
+                # Try again with a random suffix
+                import random
+                random_suffix = random.randint(1000, 9999)
+                connection_name = f"BlobStorage_{settings.STORAGE_ACCOUNT_NAME}_{random_suffix}"
+
+                connection_result = await fabric_service.create_connection(
+                    workspace_id=workspace_id,
+                    connection_name=connection_name,
+                    source_type="adls",  # Use ADLS Gen2 for shortcuts
+                    connection_config={
+                        "account_name": settings.STORAGE_ACCOUNT_NAME,
+                        "auth_type": "WorkspaceIdentity"  # Use Workspace Identity for ADLS Gen2
+                    }
+                )
+
+                if not connection_result.get("success"):
+                    return {
+                        "success": False,
+                        "error": "Failed to create connection after retry",
+                        "message": connection_result.get("error", "Unknown error")
+                    }
+            else:
+                return {
+                    "success": False,
+                    "error": "Failed to create connection",
+                    "message": error_msg
+                }
+
+        connection_id = connection_result.get("connection_id")
+        logger.info(f"Connection created: {connection_name} ({connection_id})")
+
+        # Create shortcuts for bronze and silver containers
+        shortcuts_created = []
+
+        for container_name in ["bronze", "silver"]:
+            shortcut_name = f"azure_blob_{container_name}"
+
+            shortcut_result = await fabric_service.create_onelake_shortcut(
+                workspace_id=workspace_id,
+                lakehouse_id=lakehouse_id,
+                shortcut_name=shortcut_name,
+                target_location="Files",  # Create in Files folder
+                connection_id=connection_id,
+                shortcut_config={
+                    "target_type": "AdlsGen2",  # Use ADLS Gen2 format
+                    "storage_account": settings.STORAGE_ACCOUNT_NAME,
+                    "container": container_name,
+                    "folder_path": ""  # Root of container
+                }
+            )
+
+            if shortcut_result.get("success"):
+                shortcuts_created.append({
+                    "name": shortcut_name,
+                    "container": container_name,
+                    "path": f"Files/{shortcut_name}"
+                })
+                logger.info(f"Shortcut created: {shortcut_name}")
+            else:
+                logger.warning(f"Failed to create shortcut for {container_name}: {shortcut_result.get('error')}")
+
+        if shortcuts_created:
+            return {
+                "success": True,
+                "lakehouse_name": lakehouse_name,
+                "lakehouse_id": lakehouse_id,
+                "connection_name": connection_name,
+                "connection_id": connection_id,
+                "shortcuts": shortcuts_created,
+                "storage_account": settings.STORAGE_ACCOUNT_NAME
+            }
+        else:
+            return {
+                "success": False,
+                "error": "No shortcuts were created",
+                "message": "Check if shortcuts already exist or if there are permission issues"
+            }
+
+    except Exception as e:
+        logger.error(f"Error creating blob storage shortcuts: {str(e)}", exc_info=True)
+        return {
+            "success": False,
+            "error": str(e),
+            "message": "An unexpected error occurred while creating shortcuts"
+        }
+
 # Root endpoint
 @app.get("/")
 async def root():
@@ -154,10 +324,10 @@ async def root():
         "name": "Pipeline Builder API",
         "version": "1.0.0",
         "status": "running",
-        "claude_model": config.CLAUDE_MODEL,
-        "azure_openai_model": config.AZURE_OPENAI_DEPLOYMENT,
+        "claude_model": settings.CLAUDE_MODEL,
+        "azure_openai_model": settings.AZURE_OPENAI_DEPLOYMENT,
         "azure_ai_agent_enabled": True,
-        "bing_grounding_enabled": bool(config.BING_GROUNDING_CONNECTION_ID)
+        "bing_grounding_enabled": bool(settings.BING_GROUNDING_CONNECTION_ID)
     }
 
 # Health check
@@ -198,11 +368,326 @@ async def chat_with_ai(request: ChatRequest, user: dict = Depends(validate_token
         # Update conversation context with user message
         conv_context.update_context(user_message)
 
+        # CHECK FOR PENDING CONFIRMATION (Shortcut Creation)
+        pending = conv_context.get_pending_confirmation()
+
+        if pending and pending["action"] == "create_shortcut":
+            # User is responding to shortcut creation confirmation
+            if conv_context.is_user_confirming(user_message):
+                # User confirmed - create shortcuts
+                logger.info("User confirmed shortcut creation. Creating shortcuts...")
+
+                shortcut_result = await create_blob_storage_shortcuts(request.workspace_id)
+
+                conv_context.clear_pending_confirmation()
+
+                if shortcut_result["success"]:
+                    # Store shortcut information in conversation context
+                    conv_context.set_shortcuts(shortcut_result)
+                    logger.info(f"Stored shortcut info in conversation context: {shortcut_result.get('lakehouse_name')}")
+
+                    # Success response
+                    shortcuts_info = "\n".join([
+                        f"  • **{s['name']}** → {s['path']} (container: {s['container']})"
+                        for s in shortcut_result["shortcuts"]
+                    ])
+
+                    # Check if shortcuts already existed or were just created
+                    if shortcut_result.get("already_exists"):
+                        success_message = f"""✅ **Shortcuts Already Set Up!**
+
+Good news! Your lakehouse already has shortcuts configured:
+
+**Storage Account:** {shortcut_result['storage_account']}
+**Lakehouse:** {shortcut_result['lakehouse_name']}
+
+**Available Shortcuts:**
+{shortcuts_info}
+
+Your data is ready to use! Would you like me to help you create a pipeline to process this data?"""
+                    else:
+                        success_message = f"""✅ **Shortcuts Created Successfully!**
+
+I've created OneLake shortcuts for your Azure Blob Storage:
+
+**Storage Account:** {shortcut_result['storage_account']}
+**Lakehouse:** {shortcut_result['lakehouse_name']}
+**Connection:** {shortcut_result.get('connection_name', 'N/A')}
+
+**Shortcuts Created:**
+{shortcuts_info}
+
+You can now access your data directly in the lakehouse! Would you like me to help you create a pipeline to process this data?"""
+
+                    return ChatResponse(
+                        role="assistant",
+                        content=success_message,
+                        suggestions=["Create a pipeline", "Browse the data", "Add transformations"],
+                        pipeline_preview=None,
+                        shortcut_info=shortcut_result,
+                        needs_confirmation=False,
+                        confirmation_action=None
+                    )
+                else:
+                    # Error response
+                    error_message = f"""❌ **Failed to Create Shortcuts**
+
+{shortcut_result.get('message', 'Unknown error')}
+
+Error details: {shortcut_result.get('error', 'None')}
+
+Would you like me to provide manual instructions instead?"""
+
+                    return ChatResponse(
+                        role="assistant",
+                        content=error_message,
+                        suggestions=["Show manual steps", "Try again", "Contact support"],
+                        pipeline_preview=None,
+                        shortcut_info=None,
+                        needs_confirmation=False,
+                        confirmation_action=None
+                    )
+            else:
+                # User declined
+                conv_context.clear_pending_confirmation()
+                logger.info("User declined shortcut creation")
+
+                return ChatResponse(
+                    role="assistant",
+                    content="No problem! Let me know if you'd like to create shortcuts later or if you need help with something else.",
+                    suggestions=None,
+                    pipeline_preview=None,
+                    shortcut_info=None,
+                    needs_confirmation=False,
+                    confirmation_action=None
+                )
+
+        # CHECK FOR PENDING DEPLOYMENT PARAMETER COLLECTION
+        if pending and pending["action"] == "collect_deployment_params":
+            # User is providing deployment parameters step by step
+            step = pending.get("data", {}).get("step")
+            deployment_config = pending.get("data", {}).get("config", {})
+
+            if step == "lakehouse_name":
+                # Parse lakehouse name from user input
+                # Handle cases like "warehouse = jay-dev-warehouse lakehouse = jay_dev_lakehouse"
+                lakehouse_name = user_message.strip()
+
+                # Try to extract lakehouse name if user provided both warehouse and lakehouse
+                if "lakehouse" in lakehouse_name.lower():
+                    import re
+                    # Extract value after "lakehouse ="
+                    match = re.search(r'lakehouse\s*=\s*([^\s]+)', lakehouse_name, re.IGNORECASE)
+                    if match:
+                        lakehouse_name = match.group(1)
+                    else:
+                        # Just take the last word if pattern doesn't match
+                        parts = lakehouse_name.split()
+                        lakehouse_name = parts[-1]
+
+                deployment_config["lakehouse_name"] = lakehouse_name
+                conv_context.set_pending_confirmation("collect_deployment_params", {
+                    "workspace_id": request.workspace_id,
+                    "step": "source_folder",
+                    "config": deployment_config
+                })
+
+                response = f"""✅ **Lakehouse:** {lakehouse_name}
+✅ **Warehouse:** jay-dev-warehouse (default)
+
+**What's the source folder name?**
+(e.g., "bronze", "incoming", "raw-data")
+
+This is where your CSV files are located in the blob storage."""
+
+                return ChatResponse(
+                    role="assistant",
+                    content=response,
+                    suggestions=["bronze", "incoming", "raw-data"],
+                    pipeline_preview=None,
+                    shortcut_info=None,
+                    needs_confirmation=False,
+                    confirmation_action=None
+                )
+
+            elif step == "source_folder":
+                # Store source folder and ask for output folder
+                deployment_config["source_folder"] = user_message.strip()
+                conv_context.set_pending_confirmation("collect_deployment_params", {
+                    "workspace_id": request.workspace_id,
+                    "step": "output_folder",
+                    "config": deployment_config
+                })
+
+                response = f"""✅ **Source folder:** Files/{user_message.strip()}
+
+**What's the output folder name?**
+(e.g., "silver", "processed", "clean-data")
+
+This is where the processed results will be stored."""
+
+                return ChatResponse(
+                    role="assistant",
+                    content=response,
+                    suggestions=["silver", "processed", "clean-data"],
+                    pipeline_preview=None,
+                    shortcut_info=None,
+                    needs_confirmation=False,
+                    confirmation_action=None
+                )
+
+            elif step == "output_folder":
+                # Store output folder and ask for pipeline name
+                deployment_config["output_folder"] = user_message.strip()
+                conv_context.set_pending_confirmation("collect_deployment_params", {
+                    "workspace_id": request.workspace_id,
+                    "step": "pipeline_name",
+                    "config": deployment_config
+                })
+
+                response = f"""✅ **Output folder:** Files/{user_message.strip()}
+
+**What should I name this pipeline?**
+(e.g., "DataProcessingPipeline", "CSVLoader", "PIIDetectionPipeline")"""
+
+                return ChatResponse(
+                    role="assistant",
+                    content=response,
+                    suggestions=["DataProcessingPipeline", "CSVLoader", "PIIDetectionPipeline"],
+                    pipeline_preview=None,
+                    shortcut_info=None,
+                    needs_confirmation=False,
+                    confirmation_action=None
+                )
+
+            elif step == "pipeline_name":
+                # Store pipeline name and ask about PII/PHI detection
+                deployment_config["pipeline_name"] = user_message.strip()
+                conv_context.set_pending_confirmation("collect_deployment_params", {
+                    "workspace_id": request.workspace_id,
+                    "step": "pii_phi_detection",
+                    "config": deployment_config
+                })
+
+                response = f"""✅ **Pipeline Name:** {user_message.strip()}
+
+**Do you need PII/PHI detection?**
+(This will scan your CSV files for sensitive personal and health information)"""
+
+                return ChatResponse(
+                    role="assistant",
+                    content=response,
+                    suggestions=["Yes, enable PII/PHI detection", "No, just load the data"],
+                    pipeline_preview=None,
+                    shortcut_info=None,
+                    needs_confirmation=False,
+                    confirmation_action=None
+                )
+
+            elif step == "pii_phi_detection":
+                # Store PII/PHI detection preference and show summary
+                pii_phi_needed = conv_context.is_user_confirming(user_message)
+                deployment_config["pii_phi_detection"] = pii_phi_needed
+
+                # Build pipeline steps based on PII/PHI detection
+                if pii_phi_needed:
+                    pipeline_steps = f"""1. Get all CSV files from Files/{deployment_config.get('source_folder')}
+2. Filter out already-processed files
+3. Run PII/PHI detection on each file
+4. Save results to Files/{deployment_config.get('output_folder')}"""
+                else:
+                    pipeline_steps = f"""1. Get all CSV files from Files/{deployment_config.get('source_folder')}
+2. Filter out already-processed files
+3. Save results to Files/{deployment_config.get('output_folder')}"""
+
+                # Show configuration summary
+                summary_message = f"""✅ **Configuration Complete!**
+
+**Summary:**
+- **Workspace:** jay-dev (default)
+- **Lakehouse:** {deployment_config.get('lakehouse_name')}
+- **Warehouse:** jay-dev-warehouse (default)
+- **Source:** Files/{deployment_config.get('source_folder')}
+- **Output:** Files/{deployment_config.get('output_folder')}
+- **Pipeline Name:** {deployment_config.get('pipeline_name')}
+- **PII/PHI Detection:** {"Enabled" if pii_phi_needed else "Disabled"}
+
+This pipeline will:
+{pipeline_steps}
+
+**Ready to deploy?**
+Reply with "yes" or "deploy" to create the pipeline."""
+
+                # Clear pending state - we're done collecting values
+                conv_context.clear_pending_confirmation()
+
+                # Direct user to Pipeline Preview page
+                redirect_message = f"""{summary_message}
+
+**Next Step:**
+1. Go to the **Pipeline Preview** page
+2. Click the **"Generate Pipeline"** button to deploy
+
+The pipeline will be created in your workspace using these settings."""
+
+                return ChatResponse(
+                    role="assistant",
+                    content=redirect_message,
+                    suggestions=["Go to Pipeline Preview"],
+                    pipeline_preview=None,
+                    shortcut_info=None,
+                    needs_confirmation=False,
+                    confirmation_action=None
+                )
+
+        # Note: Deployment is now handled by the /api/pipelines/generate endpoint
+        # The chat just collects parameters and redirects to Pipeline Preview
+
+        # DETECT BLOB STORAGE / CSV LOADING MENTION (If not already pending)
+        user_message_lower = user_message.lower()
+        blob_keywords = ["azure blob", "blob storage", "azure storage", "storage account", "csv files", "load csv", "loading csv"]
+        blob_detected = any(keyword in user_message_lower for keyword in blob_keywords)
+
+        if blob_detected and not pending:
+            # User mentioned blob storage or CSV loading - start pipeline deployment flow
+            logger.info("Blob storage/CSV loading detected - starting deployment flow...")
+
+            conv_context.set_pending_confirmation("collect_deployment_params", {
+                "workspace_id": request.workspace_id,
+                "step": "lakehouse_name"
+            })
+
+            deployment_message = """🔍 **I can help you deploy a Fabric pipeline to load data from blob storage to your lakehouse!**
+
+This will create a pipeline that:
+- Processes CSV files from blob storage
+- Detects PII/PHI in your data
+- Loads results into your lakehouse
+
+**What lakehouse should I use?**
+(Just provide the lakehouse name, e.g., "jay_dev_lakehouse")
+
+Note: The warehouse connection "jay-dev-warehouse" will be used automatically."""
+
+            return ChatResponse(
+                role="assistant",
+                content=deployment_message,
+                suggestions=None,
+                pipeline_preview=None,
+                shortcut_info=None,
+                needs_confirmation=False,
+                confirmation_action=None
+            )
+
+        # NORMAL AI CHAT FLOW
         # Check if we should proactively search for best practices
         proactive_search_query = conv_context.should_search_for_best_practices()
 
         # Convert ChatMessage objects to dict format for Azure AI Agent
         messages = [{"role": msg.role, "content": msg.content} for msg in request.messages]
+
+        # Note: Azure AI Agent only supports 'user' and 'assistant' roles, not 'system'
+        # We'll append instructions to the user message instead if needed
 
         # Add context information to help the agent be more proactive
         context_summary = conv_context.get_context_for_agent()
@@ -211,11 +696,8 @@ async def chat_with_ai(request: ChatRequest, user: dict = Depends(validate_token
             messages[-1]["content"] = messages[-1]["content"] + context_summary
 
         # If we detected source and destination, proactively check for latest updates
-        proactive_info = ""
         if proactive_search_query and conv_context.context["current_stage"] == "suggesting":
             logger.info(f"Proactively searching: {proactive_search_query}")
-            # The agent will do this automatically with the new prompt, but we track it
-            proactive_info = f"\n\n🔍 PROACTIVE SEARCH TRIGGERED: {proactive_search_query}"
 
         # Call Azure AI Agent with Bing Grounding
         response = await agent_service.chat(
@@ -234,7 +716,10 @@ async def chat_with_ai(request: ChatRequest, user: dict = Depends(validate_token
             role="assistant",
             content=response["content"],
             suggestions=None,
-            pipeline_preview=None
+            pipeline_preview=None,
+            shortcut_info=None,
+            needs_confirmation=False,
+            confirmation_action=None
         )
 
     except Exception as e:
@@ -300,8 +785,8 @@ async def chat_with_gpt5(request: ChatRequest, user: dict = Depends(validate_tok
         # Call Azure OpenAI with function calling (Bing Search)
         response = await azure_openai_service.chat_with_function_calling(
             messages=messages,
-            max_tokens=config.AZURE_OPENAI_MAX_TOKENS,
-            temperature=config.AZURE_OPENAI_TEMPERATURE,
+            max_tokens=settings.AZURE_OPENAI_MAX_TOKENS,
+            temperature=settings.AZURE_OPENAI_TEMPERATURE,
             enable_search=True
         )
 
@@ -343,8 +828,8 @@ async def simple_chat_with_gpt5(request: ChatRequest, user: dict = Depends(valid
         # Call Azure OpenAI without function calling
         response = await azure_openai_service.simple_chat(
             messages=messages,
-            max_tokens=config.AZURE_OPENAI_MAX_TOKENS,
-            temperature=config.AZURE_OPENAI_TEMPERATURE
+            max_tokens=settings.AZURE_OPENAI_MAX_TOKENS,
+            temperature=settings.AZURE_OPENAI_TEMPERATURE
         )
 
         return {
@@ -362,34 +847,117 @@ async def simple_chat_with_gpt5(request: ChatRequest, user: dict = Depends(valid
 async def generate_pipeline(request: PipelineGenerateRequest, user: dict = Depends(validate_token)):
     """
     Generate complete pipeline from requirements
+
+    For CSV/blob storage pipelines, this uses the hardcoded deployment template.
+    For other pipelines, this uses Claude generation.
     """
     try:
         logger.info(f"Generating pipeline: {request.pipeline_name} for user: {user['email']}")
 
-        result = await claude_service.generate_pipeline(request)
+        # JUST GENERATE PREVIEW - Don't deploy yet!
+        logger.info("Generating pipeline preview with hardcoded values")
 
-        # Generate pipeline ID and store in memory
+        # Import required models
+        from models.pipeline_models import NotebookCode, MedallionLayer, PipelineActivity
         import time
+
+        # Generate pipeline ID for storing in memory
         pipeline_id = int(time.time())
 
-        # Store generated pipeline for deployment
+        # Define full pipeline activities (what will be deployed)
+        activities = [
+            PipelineActivity(
+                name="Get_CSV_Files_List",
+                type="Lookup",
+                config={
+                    "description": "Get list of CSV files from lakehouse Files folder",
+                    "source": {"type": "LakehouseFiles", "path": "Files/bronze"},
+                    "query": "List all .csv files"
+                },
+                depends_on=None
+            ),
+            PipelineActivity(
+                name="GetProcessedFileNames",
+                type="Lookup",
+                config={
+                    "description": "Query warehouse to get already processed files",
+                    "source": {"type": "WarehouseQuery"},
+                    "query": "SELECT processed_file FROM silver_processing_log"
+                },
+                depends_on=None
+            ),
+            PipelineActivity(
+                name="FilterNewFiles",
+                type="Filter",
+                config={
+                    "description": "Filter out files that have already been processed",
+                    "items": "@activity('Get_CSV_Files_List').output.value",
+                    "condition": "@not(contains(activity('GetProcessedFileNames').output.value, item().name))"
+                },
+                depends_on=["Get_CSV_Files_List", "GetProcessedFileNames"]
+            ),
+            PipelineActivity(
+                name="Process_CSV_Files",
+                type="ForEach",
+                config={
+                    "description": "Process each new CSV file with PII/PHI detection",
+                    "items": "@activity('FilterNewFiles').output.value",
+                    "isSequential": False,
+                    "batchCount": 20,
+                    "activities": [
+                        {
+                            "name": "Process_Single_CSV",
+                            "type": "Notebook",
+                            "notebook": "PHI_PII_detection",
+                            "parameters": {
+                                "input_file": "@item().name",
+                                "source_path": "Files/bronze",
+                                "target_path": "Files/silver"
+                            }
+                        }
+                    ]
+                },
+                depends_on=["FilterNewFiles"]
+            )
+        ]
+
+        # Define notebook
+        notebook = NotebookCode(
+            notebook_name="PHI_PII_detection",
+            layer=MedallionLayer.SILVER,
+            code="# PII/PHI detection notebook\n# Processes CSV files and detects sensitive data",
+            description="Detects PII/PHI in CSV files from blob storage"
+        )
+
+        # Store in memory for deployment later
         generated_pipelines[pipeline_id] = {
             "pipeline_name": request.pipeline_name,
-            "activities": result.get("activities", []),
-            "notebooks": result.get("notebooks", []),
-            "reasoning": result.get("reasoning", ""),
-            "workspace_id": request.workspace_id
+            "activities": activities,
+            "notebooks": [notebook],
+            "workspace_id": request.workspace_id,
+            "config": {
+                "workspace_name": "jay-dev",
+                "lakehouse_name": "jay_dev_lakehouse",
+                "warehouse_name": "jay-dev-warehouse",
+                "source_folder": "bronze",
+                "output_folder": "silver"
+            }
         }
 
+        logger.info(f"✅ Pipeline preview generated (ID: {pipeline_id})")
+
+        # Return preview (NOT deployed yet!)
         return PipelineGenerateResponse(
             pipeline_id=pipeline_id,
             pipeline_name=request.pipeline_name,
-            activities=result.get("activities", []),
-            notebooks=result.get("notebooks", []),
-            fabric_pipeline_json=result.get("fabric_pipeline_json", {}),
-            reasoning=result.get("reasoning", "")
+            activities=activities,
+            notebooks=[notebook],
+            fabric_pipeline_json={},
+            reasoning=f"✅ Pipeline preview ready:\n- Workspace: jay-dev\n- Lakehouse: jay_dev_lakehouse\n- Source: Files/bronze\n- Output: Files/silver\n\nClick 'Deploy to Fabric Workspace' to create this pipeline."
         )
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Pipeline generation error: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Pipeline generation failed: {str(e)}")
@@ -962,7 +1530,7 @@ async def validate_connection(request: Dict[str, Any]):
 @app.post("/api/pipelines/{pipeline_id}/deploy")
 async def deploy_pipeline(pipeline_id: int, request: Dict[str, Any], user: dict = Depends(validate_token)):
     """
-    Deploy pipeline to Microsoft Fabric workspace
+    Deploy pipeline to Microsoft Fabric workspace using deploy_pipeline_api.py
     """
     try:
         logger.info(f"Deploying pipeline {pipeline_id} for user: {user['email']}")
@@ -972,31 +1540,41 @@ async def deploy_pipeline(pipeline_id: int, request: Dict[str, Any], user: dict 
             raise HTTPException(status_code=404, detail="Pipeline not found. Please generate the pipeline first.")
 
         pipeline_data = generated_pipelines[pipeline_id]
-        workspace_id = request.get("workspace_id") or pipeline_data.get("workspace_id")
+        config = pipeline_data.get("config", {})
 
-        if not workspace_id:
-            raise HTTPException(status_code=400, detail="Workspace ID is required")
+        # Import deployment function
+        from deploy_pipeline_api import deploy_fabric_pipeline
 
-        # Deploy to Fabric using Fabric API service
-        result = await fabric_service.deploy_complete_pipeline(
-            workspace_id=workspace_id,
+        # Deploy using hardcoded values
+        logger.info(f"Deploying with config: {config}")
+
+        result = await deploy_fabric_pipeline(
+            workspace_name=config.get("workspace_name", "jay-dev"),
+            lakehouse_name=config.get("lakehouse_name", "jay_dev_lakehouse"),
+            warehouse_name=config.get("warehouse_name", "jay-dev-warehouse"),
+            source_folder=config.get("source_folder", "bronze"),
+            output_folder=config.get("output_folder", "silver"),
             pipeline_name=pipeline_data["pipeline_name"],
-            activities=pipeline_data["activities"],
-            notebooks=pipeline_data["notebooks"]
+            notebook_name="PHI_PII_detection"
         )
 
-        if result.get("success"):
-            logger.info(f"Pipeline deployed successfully to workspace {workspace_id}")
+        # Check if deployment succeeded
+        if result and result.get("pipeline_id"):
+            logger.info(f"✅ Pipeline deployed successfully to Fabric!")
             return {
                 "success": True,
                 "pipeline_id": pipeline_id,
                 "fabric_pipeline_id": result.get("pipeline_id"),
-                "message": f"Pipeline deployed successfully to workspace {workspace_id}",
-                "notebooks_deployed": result.get("notebooks_deployed", 0),
-                "deployed_notebooks": result.get("deployed_notebooks", [])
+                "message": f"Pipeline '{pipeline_data['pipeline_name']}' deployed successfully to jay-dev workspace!",
+                "notebooks_deployed": 1,
+                "deployed_notebooks": [result.get("notebook_name", "PHI_PII_detection")],
+                "workspace_name": result.get("workspace_name"),
+                "lakehouse_name": result.get("lakehouse_name"),
+                "source_folder": result.get("source_folder"),
+                "output_folder": result.get("output_folder")
             }
         else:
-            raise Exception(result.get("error", "Deployment failed"))
+            raise Exception("Deployment failed - no pipeline ID returned")
 
     except HTTPException:
         raise
@@ -1064,6 +1642,97 @@ async def create_linked_service(request: LinkedServiceRequest, user: dict = Depe
             linked_service_name=request.linked_service_name,
             source_type=request.source_type,
             error=str(e)
+        )
+
+@app.post("/api/pipelines/generate-file-processing", response_model=FileProcessingPipelineResponse)
+async def generate_file_processing_pipeline(request: FileProcessingPipelineRequest, user: dict = Depends(validate_token)):
+    """
+    Generate complete file processing pipeline with incremental loading pattern
+
+    This creates a pipeline that:
+    1. Gets all files from Azure Blob Storage shortcut
+    2. Queries fileprocessed table via SQL endpoint to get already processed files
+    3. Filters to only new files
+    4. Processes each new file and updates fileprocessed table
+    """
+    try:
+        logger.info(f"Generating file processing pipeline: {request.pipeline_name}")
+        logger.info(f"Workspace: {request.workspace_id}, Lakehouse: {request.lakehouse_id}")
+
+        # Generate the complete pipeline JSON
+        result = await fabric_service.generate_file_processing_pipeline(
+            workspace_id=request.workspace_id,
+            lakehouse_id=request.lakehouse_id,
+            pipeline_name=request.pipeline_name,
+            source_container=request.source_container,
+            bronze_shortcut_name=request.bronze_shortcut_name
+        )
+
+        if not result["success"]:
+            logger.error(f"Pipeline generation failed: {result.get('error')}")
+            return FileProcessingPipelineResponse(
+                success=False,
+                pipeline_name=request.pipeline_name,
+                error=result.get("error"),
+                message="Failed to generate pipeline"
+            )
+
+        pipeline_json = result["pipeline_json"]
+
+        # If deploy_immediately is True, deploy the pipeline
+        if request.deploy_immediately:
+            logger.info(f"Deploying pipeline immediately: {request.pipeline_name}")
+
+            deploy_result = await fabric_service.create_pipeline(
+                workspace_id=request.workspace_id,
+                pipeline_name=request.pipeline_name,
+                pipeline_definition=pipeline_json
+            )
+
+            if deploy_result["success"]:
+                logger.info(f"Pipeline deployed successfully: {deploy_result.get('pipeline_id')}")
+                return FileProcessingPipelineResponse(
+                    success=True,
+                    pipeline_name=request.pipeline_name,
+                    pipeline_id=deploy_result.get("pipeline_id"),
+                    lakehouse_name=result.get("lakehouse_name"),
+                    sql_endpoint=result.get("sql_endpoint"),
+                    activities_count=result.get("activities_count"),
+                    pipeline_json=pipeline_json,
+                    message=f"Pipeline generated and deployed successfully with {result.get('activities_count')} activities"
+                )
+            else:
+                logger.error(f"Pipeline deployment failed: {deploy_result.get('error')}")
+                return FileProcessingPipelineResponse(
+                    success=True,
+                    pipeline_name=request.pipeline_name,
+                    lakehouse_name=result.get("lakehouse_name"),
+                    sql_endpoint=result.get("sql_endpoint"),
+                    activities_count=result.get("activities_count"),
+                    pipeline_json=pipeline_json,
+                    error=f"Pipeline generated but deployment failed: {deploy_result.get('error')}",
+                    message="Pipeline generated successfully but deployment failed"
+                )
+        else:
+            # Just return the pipeline JSON for preview
+            logger.info(f"Pipeline generated successfully: {request.pipeline_name}")
+            return FileProcessingPipelineResponse(
+                success=True,
+                pipeline_name=request.pipeline_name,
+                lakehouse_name=result.get("lakehouse_name"),
+                sql_endpoint=result.get("sql_endpoint"),
+                activities_count=result.get("activities_count"),
+                pipeline_json=pipeline_json,
+                message=f"Pipeline generated successfully with {result.get('activities_count')} activities. Set deploy_immediately=true to deploy."
+            )
+
+    except Exception as e:
+        logger.error(f"Error generating file processing pipeline: {str(e)}", exc_info=True)
+        return FileProcessingPipelineResponse(
+            success=False,
+            pipeline_name=request.pipeline_name,
+            error=str(e),
+            message="Pipeline generation failed"
         )
 
 if __name__ == "__main__":

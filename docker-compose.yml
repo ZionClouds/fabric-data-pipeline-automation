@@ -1,0 +1,90 @@
+version: '3.8'
+
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: fabric-backend
+    ports:
+      - "8080:8080"
+    environment:
+      # Database Configuration
+      - DATABASE_SERVER=${DATABASE_SERVER:-fabric-server.database.windows.net}
+      - DATABASE_NAME=${DATABASE_NAME:-fabricdb}
+      - DATABASE_USER=${DATABASE_USER:-fabricadmin}
+      - DATABASE_PASSWORD=${DATABASE_PASSWORD}
+
+      # Anthropic Claude Configuration
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - CLAUDE_MODEL=claude-sonnet-4-20250514
+      - CLAUDE_MAX_TOKENS=8000
+
+      # Azure OpenAI Configuration
+      - AZURE_OPENAI_ENDPOINT=${AZURE_OPENAI_ENDPOINT}
+      - AZURE_OPENAI_API_KEY=${AZURE_OPENAI_API_KEY}
+      - AZURE_OPENAI_DEPLOYMENT=${AZURE_OPENAI_DEPLOYMENT:-gpt-5-chat}
+      - AZURE_OPENAI_API_VERSION=2024-12-01-preview
+      - AZURE_OPENAI_MAX_TOKENS=16384
+      - AZURE_OPENAI_TEMPERATURE=1.0
+
+      # Azure AI Foundry Project
+      - AZURE_AI_PROJECT_ENDPOINT=${AZURE_AI_PROJECT_ENDPOINT}
+      - BING_GROUNDING_CONNECTION_ID=${BING_GROUNDING_CONNECTION_ID}
+
+      # Legacy Bing Search
+      - BING_SEARCH_API_KEY=${BING_SEARCH_API_KEY}
+      - BING_SEARCH_ENDPOINT=https://api.bing.microsoft.com/v7.0/search
+
+      # Microsoft Fabric Configuration
+      - FABRIC_CLIENT_ID=${FABRIC_CLIENT_ID}
+      - FABRIC_TENANT_ID=${FABRIC_TENANT_ID}
+      - FABRIC_CLIENT_SECRET=${FABRIC_CLIENT_SECRET}
+
+      # Workspace Backend Integration
+      - WORKSPACE_BACKEND_URL=${WORKSPACE_BACKEND_URL:-https://fabricbackend.lemonfield-12c57489.eastus.azurecontainerapps.io}
+
+      # Development Mode
+      - DISABLE_AUTH=${DISABLE_AUTH:-true}
+
+      # Azure Storage Account Configuration
+      - STORAGE_ACCOUNT_NAME=${STORAGE_ACCOUNT_NAME:-claimsadlsgen2}
+      - STORAGE_ACCOUNT_KEY=${STORAGE_ACCOUNT_KEY}
+    volumes:
+      - ./backend:/app
+      - /app/__pycache__
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - fabric-network
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        - REACT_APP_API_URL=http://localhost:8080
+        - REACT_APP_WORKSPACE_API_URL=http://localhost:8080
+    container_name: fabric-frontend
+    ports:
+      - "3000:8080"
+    depends_on:
+      - backend
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8080/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 5s
+    networks:
+      - fabric-network
+
+networks:
+  fabric-network:
+    driver: bridge

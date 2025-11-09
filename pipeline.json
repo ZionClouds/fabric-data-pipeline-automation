@@ -1,0 +1,327 @@
+{
+    "name": "PII_PHI_Pipeline",
+    "objectId": "e103cd4e-42cb-41da-a789-7440b3ab0f30",
+    "properties": {
+        "activities": [
+            {
+                "name": "Get Metadata",
+                "type": "GetMetadata",
+                "dependsOn": [],
+                "policy": {
+                    "timeout": "0.12:00:00",
+                    "retry": 0,
+                    "retryIntervalInSeconds": 30,
+                    "secureOutput": false,
+                    "secureInput": false
+                },
+                "typeProperties": {
+                    "fieldList": [
+                        "childItems"
+                    ],
+                    "datasetSettings": {
+                        "annotations": [],
+                        "connectionSettings": {
+                            "name": "PII_PHI_lakehouse",
+                            "properties": {
+                                "annotations": [],
+                                "type": "Lakehouse",
+                                "typeProperties": {
+                                    "workspaceId": "91ff9e14-fec6-4d76-ba4e-ba401c7a3f70",
+                                    "artifactId": "ac63e579-02e7-4989-b6dc-7b0cbd5eefef",
+                                    "rootFolder": "Files"
+                                },
+                                "externalReferences": {
+                                    "connection": "f77bbbd6-2cd0-475b-89b2-eb86f449c7c9"
+                                }
+                            }
+                        },
+                        "type": "DelimitedText",
+                        "typeProperties": {
+                            "location": {
+                                "type": "LakehouseLocation",
+                                "folderPath": "claims"
+                            },
+                            "columnDelimiter": ",",
+                            "escapeChar": "\\",
+                            "firstRowAsHeader": true,
+                            "quoteChar": "\""
+                        },
+                        "schema": []
+                    },
+                    "storeSettings": {
+                        "type": "LakehouseReadSettings",
+                        "recursive": true,
+                        "enablePartitionDiscovery": false
+                    },
+                    "formatSettings": {
+                        "type": "DelimitedTextReadSettings"
+                    }
+                }
+            },
+            {
+                "name": "forEach",
+                "type": "ForEach",
+                "dependsOn": [
+                    {
+                        "activity": "FilterNewFiles",
+                        "dependencyConditions": [
+                            "Succeeded"
+                        ]
+                    }
+                ],
+                "typeProperties": {
+                    "items": {
+                        "value": "@activity('FilterNewFiles').output.value",
+                        "type": "Expression"
+                    },
+                    "activities": [
+                        {
+                            "name": "PHI_PII_detection",
+                            "type": "TridentNotebook",
+                            "dependsOn": [],
+                            "policy": {
+                                "timeout": "0.12:00:00",
+                                "retry": 0,
+                                "retryIntervalInSeconds": 30,
+                                "secureOutput": false,
+                                "secureInput": false
+                            },
+                            "typeProperties": {
+                                "notebookId": "adf61e58-6f63-4a99-97bf-3f9c4990ca8b",
+                                "workspaceId": "91ff9e14-fec6-4d76-ba4e-ba401c7a3f70",
+                                "parameters": {
+                                    "fileName": {
+                                        "value": {
+                                            "value": "@item().name",
+                                            "type": "Expression"
+                                        },
+                                        "type": "string"
+                                    }
+                                }
+                            }
+                        },
+                        {
+                            "name": "If Condition1",
+                            "type": "IfCondition",
+                            "dependsOn": [
+                                {
+                                    "activity": "PHI_PII_detection",
+                                    "dependencyConditions": [
+                                        "Succeeded"
+                                    ]
+                                }
+                            ],
+                            "typeProperties": {
+                                "expression": {
+                                    "value": "@bool(\n  json(activity('PHI_PII_detection').output.result.exitValue).PII_PHI\n)\n",
+                                    "type": "Expression"
+                                },
+                                "ifFalseActivities": [
+                                    {
+                                        "name": "PII_PHI_notification1",
+                                        "type": "Office365Email",
+                                        "dependsOn": [],
+                                        "policy": {
+                                            "timeout": "0.12:00:00",
+                                            "retry": 0,
+                                            "retryIntervalInSeconds": 30,
+                                            "secureOutput": false,
+                                            "secureInput": false
+                                        },
+                                        "typeProperties": {
+                                            "to": "jay.reddy@zionclouds.com",
+                                            "subject": "PHI/PII not detection",
+                                            "body": "<p>Hi Jay,</p>\n<p>PHI/PII not detected</p>"
+                                        },
+                                        "externalReferences": {
+                                            "connection": "eedc7b74-01d7-4524-bf31-98ecead7fc5f"
+                                        }
+                                    }
+                                ],
+                                "ifTrueActivities": [
+                                    {
+                                        "name": "PII_PHI_notification",
+                                        "type": "Office365Email",
+                                        "dependsOn": [],
+                                        "policy": {
+                                            "timeout": "0.12:00:00",
+                                            "retry": 0,
+                                            "retryIntervalInSeconds": 30,
+                                            "secureOutput": false,
+                                            "secureInput": false
+                                        },
+                                        "typeProperties": {
+                                            "to": "jay.reddy@zionclouds.com",
+                                            "subject": "PHI/PII detected",
+                                            "body": "<p>Hi Jay,</p>\n<p>PII/PHI detected</p>\n<p>@{item()}</p>"
+                                        },
+                                        "externalReferences": {
+                                            "connection": "eedc7b74-01d7-4524-bf31-98ecead7fc5f"
+                                        }
+                                    }
+                                ]
+                            }
+                        },
+                        {
+                            "name": "curated Data",
+                            "type": "RefreshDataflow",
+                            "dependsOn": [
+                                {
+                                    "activity": "If Condition1",
+                                    "dependencyConditions": [
+                                        "Succeeded"
+                                    ]
+                                }
+                            ],
+                            "policy": {
+                                "timeout": "0.12:00:00",
+                                "retry": 0,
+                                "retryIntervalInSeconds": 30,
+                                "secureOutput": false,
+                                "secureInput": false
+                            },
+                            "typeProperties": {
+                                "dataflowId": "2c7b952e-3ba0-45b3-b668-586b6bf5e14f",
+                                "workspaceId": "91ff9e14-fec6-4d76-ba4e-ba401c7a3f70",
+                                "notifyOption": "NoNotification",
+                                "dataflowType": "DataflowFabric"
+                            }
+                        }
+                    ]
+                }
+            },
+            {
+                "name": "SetEmptyFileArray",
+                "type": "SetVariable",
+                "dependsOn": [
+                    {
+                        "activity": "GetProcessedFileNames",
+                        "dependencyConditions": [
+                            "Succeeded"
+                        ]
+                    }
+                ],
+                "policy": {
+                    "secureOutput": false,
+                    "secureInput": false
+                },
+                "typeProperties": {
+                    "variableName": "ProcessedFileNames",
+                    "value": {
+                        "value": "[]",
+                        "type": "Expression"
+                    }
+                }
+            },
+            {
+                "name": "FilterNewFiles",
+                "type": "Filter",
+                "dependsOn": [
+                    {
+                        "activity": "ForEach1",
+                        "dependencyConditions": [
+                            "Succeeded"
+                        ]
+                    }
+                ],
+                "typeProperties": {
+                    "items": {
+                        "value": "@activity('Get Metadata').output.childItems",
+                        "type": "Expression"
+                    },
+                    "condition": {
+                        "value": "@not(contains(variables('ProcessedFileNames'), item().name))",
+                        "type": "Expression"
+                    }
+                }
+            },
+            {
+                "name": "ForEach1",
+                "type": "ForEach",
+                "dependsOn": [
+                    {
+                        "activity": "SetEmptyFileArray",
+                        "dependencyConditions": [
+                            "Succeeded"
+                        ]
+                    }
+                ],
+                "typeProperties": {
+                    "items": {
+                        "value": "@activity('GetProcessedFileNames').output.resultSets[0].rows",
+                        "type": "Expression"
+                    },
+                    "activities": [
+                        {
+                            "name": "Set variable1",
+                            "type": "SetVariable",
+                            "dependsOn": [],
+                            "policy": {
+                                "secureOutput": false,
+                                "secureInput": false
+                            },
+                            "typeProperties": {
+                                "variableName": "ProcessedFileNames",
+                                "value": {
+                                    "value": "@item().FileName",
+                                    "type": "Expression"
+                                }
+                            }
+                        }
+                    ]
+                }
+            },
+            {
+                "name": "GetProcessedFileNames",
+                "type": "Script",
+                "dependsOn": [
+                    {
+                        "activity": "Get Metadata",
+                        "dependencyConditions": [
+                            "Succeeded"
+                        ]
+                    }
+                ],
+                "policy": {
+                    "timeout": "0.12:00:00",
+                    "retry": 0,
+                    "retryIntervalInSeconds": 30,
+                    "secureOutput": false,
+                    "secureInput": false
+                },
+                "typeProperties": {
+                    "scripts": [
+                        {
+                            "type": "Query",
+                            "text": {
+                                "value": "SELECT [FileName] FROM [PII_PHI_lakehouse].[dbo].[processedfiles] WHERE Status = 'Done'",
+                                "type": "Expression"
+                            }
+                        }
+                    ],
+                    "scriptBlockExecutionTimeout": "02:00:00",
+                    "database": "claimsauth"
+                },
+                "externalReferences": {
+                    "connection": "fd7dd7e4-4330-43af-ae8a-d15f9318b440"
+                }
+            }
+        ],
+        "variables": {
+            "v_fileName": {
+                "type": "String"
+            },
+            "ProcessedFileNames": {
+                "type": "String"
+            },
+            "SetEmptyFileArray": {
+                "type": "String"
+            },
+            "v_ProcessedFileNames": {
+                "type": "String"
+            }
+        },
+        "lastModifiedByObjectId": "00c96f1b-bb80-4992-94e8-641440d76de5",
+        "lastPublishTime": "2025-11-07T16:02:18Z"
+    }
+}

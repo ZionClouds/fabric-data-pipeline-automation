@@ -8,7 +8,7 @@ Searches for latest best practices and optimization opportunities.
 import logging
 from typing import Dict, Any, List, Optional
 from services.azure_ai_agent_service import AzureAIAgentService
-import config
+import settings
 
 logger = logging.getLogger(__name__)
 
