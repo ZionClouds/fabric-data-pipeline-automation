@@ -122,7 +122,7 @@ The **Microsoft Fabric Pipeline Builder** is an AI-powered application that allo
 
 ### 4. Workspace Management Backend
 
-**Backend URL**: `https://fabricbackend.lemonfield-12c57489.eastus.azurecontainerapps.io`
+**Backend URL**: `https://fabric-pipeline-backend.delightfulplant-1c861d44.eastus.azurecontainerapps.io`
 
 **Endpoints**:
 - `GET /api/workspaces` - List all workspaces
@@ -179,7 +179,7 @@ FABRIC_CLIENT_SECRET=your-client-secret-here
 FABRIC_TENANT_ID=e28d23e3-803d-418d-a720-c0bed39f77b6
 
 # Workspace Backend
-WORKSPACE_BACKEND_URL=https://fabricbackend.lemonfield-12c57489.eastus.azurecontainerapps.io
+WORKSPACE_BACKEND_URL=https://fabric-pipeline-backend.delightfulplant-1c861d44.eastus.azurecontainerapps.io
 
 # CORS (add all frontend URLs)
 ALLOWED_ORIGINS=http://localhost:3000,http://localhost:3001,http://localhost:3002
@@ -672,7 +672,7 @@ DISABLE_AUTH=true
 3. Field name mismatch in frontend code
 
 **Solution**:
-1. Check Workspace Backend is running: `curl https://fabricbackend.lemonfield-12c57489.eastus.azurecontainerapps.io/api/workspaces`
+1. Check Workspace Backend is running: `curl https://fabric-pipeline-backend.delightfulplant-1c861d44.eastus.azurecontainerapps.io/api/workspaces`
 2. In development mode, backend should return all workspaces
 3. Verify frontend uses `workspace.name` (not `workspace.workspace_name`)
 

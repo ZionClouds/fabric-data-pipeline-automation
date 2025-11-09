@@ -42,7 +42,7 @@ services:
       - FABRIC_CLIENT_SECRET=${FABRIC_CLIENT_SECRET}
 
       # Workspace Backend Integration
-      - WORKSPACE_BACKEND_URL=${WORKSPACE_BACKEND_URL:-https://fabricbackend.lemonfield-12c57489.eastus.azurecontainerapps.io}
+      - WORKSPACE_BACKEND_URL=${WORKSPACE_BACKEND_URL:-https://fabric-pipeline-backend.delightfulplant-1c861d44.eastus.azurecontainerapps.io}
 
       # Development Mode
       - DISABLE_AUTH=${DISABLE_AUTH:-true}
@@ -73,6 +73,11 @@ services:
     container_name: fabric-frontend
     ports:
       - "3000:8080"
+    environment:
+      # Runtime environment variables for dynamic API URL injection
+      - REACT_APP_API_URL=http://localhost:8080
+      - REACT_APP_WORKSPACE_API_URL=http://localhost:8080
+      - PORT=8080
     depends_on:
       - backend
     restart: unless-stopped
