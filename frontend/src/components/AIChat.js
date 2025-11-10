@@ -24,6 +24,9 @@ import {
   AutoAwesome as AutoAwesomeIcon
 } from '@mui/icons-material';
 
+// API URL from env config (supports Docker runtime injection)
+const API_BASE_URL = window._env_?.REACT_APP_API_URL || process.env.REACT_APP_API_URL || 'http://localhost:8000';
+
 const AIChat = () => {
   const {
     selectedWorkspace,
@@ -68,7 +71,7 @@ const AIChat = () => {
 
         try {
           // Fetch conversation with messages from database
-          const response = await fetch(`http://localhost:8000/api/conversations/${storedConversationId}`);
+          const response = await fetch(`${API_BASE_URL}/api/conversations/${storedConversationId}`);
 
           if (response.ok) {
             const data = await response.json();

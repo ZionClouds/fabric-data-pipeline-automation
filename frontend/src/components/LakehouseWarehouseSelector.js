@@ -12,6 +12,9 @@ import {
 } from '@mui/material';
 import { Storage as StorageIcon, Warehouse as WarehouseIcon, CheckCircle as CheckIcon } from '@mui/icons-material';
 
+// API URL from env config (supports Docker runtime injection)
+const API_BASE_URL = window._env_?.REACT_APP_API_URL || process.env.REACT_APP_API_URL || 'http://localhost:8000';
+
 const LakehouseWarehouseSelector = () => {
   const {
     selectedWorkspace,
@@ -48,14 +51,14 @@ const LakehouseWarehouseSelector = () => {
 
       // Fetch lakehouses
       const lakehousesRes = await axios.get(
-        `${process.env.REACT_APP_API_URL || 'http://localhost:8000'}/api/workspaces/${selectedWorkspace.id}/lakehouses`,
+        `${API_BASE_URL}/api/workspaces/${selectedWorkspace.id}/lakehouses`,
         config
       );
       setLakehouses(lakehousesRes.data || []);
 
       // Fetch warehouses
       const warehousesRes = await axios.get(
-        `${process.env.REACT_APP_API_URL || 'http://localhost:8000'}/api/workspaces/${selectedWorkspace.id}/warehouses`,
+        `${API_BASE_URL}/api/workspaces/${selectedWorkspace.id}/warehouses`,
         config
       );
       setWarehouses(warehousesRes.data || []);

@@ -3,6 +3,9 @@ import { usePipeline } from '../contexts/PipelineContext';
 import { useAuth } from '../contexts/AuthContext';
 import { pipelineApi } from '../services/api';
 import NotebookViewer from './NotebookViewer';
+
+// API URL from env config (supports Docker runtime injection)
+const API_BASE_URL = window._env_?.REACT_APP_API_URL || process.env.REACT_APP_API_URL || 'http://localhost:8000';
 import {
   Box,
   Typography,
@@ -66,7 +69,7 @@ const PipelinePreview = () => {
         setDeploySuccess(null);
 
         // Fetch job details from API
-        const response = await fetch(`http://localhost:8000/api/jobs/${selectedJobForPreview}`);
+        const response = await fetch(`${API_BASE_URL}/api/jobs/${selectedJobForPreview}`);
 
         if (!response.ok) {
           throw new Error(`Failed to fetch job details: ${response.statusText}`);
@@ -160,7 +163,7 @@ const PipelinePreview = () => {
       setDeploySuccess(null);
 
       // Use job-based deployment endpoint (CONSOLIDATED ENDPOINT)
-      const res = await fetch(`http://localhost:8000/api/jobs/${currentJobId}/deploy`, {
+      const res = await fetch(`${API_BASE_URL}/api/jobs/${currentJobId}/deploy`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
