@@ -26,6 +26,7 @@ import {
   Logout as LogoutIcon
 } from '@mui/icons-material';
 import WorkspaceSelector from './WorkspaceSelector';
+import LakehouseWarehouseSelector from './LakehouseWarehouseSelector';
 import AIChat from './AIChat';
 import PipelinePreview from './PipelinePreview';
 import PipelineList from './PipelineList';
@@ -192,6 +193,11 @@ const PipelineBuilderLayout = () => {
               workspaces={workspaces}
               isLoading={isLoadingWorkspaces}
             />
+
+            {/* Lakehouse and Warehouse Selectors */}
+            <Box sx={{ mt: 2 }}>
+              <LakehouseWarehouseSelector />
+            </Box>
           </Box>
         )}
 

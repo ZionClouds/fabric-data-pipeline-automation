@@ -548,7 +548,7 @@ async def get_or_create_item(
 # ============================================================================
 
 async def deploy_fabric_pipeline(
-    workspace_name: str,
+    workspace_id: str,
     lakehouse_name: str,
     source_folder: str,
     output_folder: str,
@@ -560,7 +560,7 @@ async def deploy_fabric_pipeline(
     Deploy a Fabric pipeline with customizable parameters.
 
     Args:
-        workspace_name: Name of the Fabric workspace
+        workspace_id: ID of the Fabric workspace (or name for backwards compatibility)
         lakehouse_name: Name of the lakehouse
         source_folder: Source folder name (e.g., "bronze")
         output_folder: Output folder name (e.g., "silver")
@@ -576,7 +576,7 @@ async def deploy_fabric_pipeline(
         print(f"\n{'='*80}")
         print(f"  DEPLOYING FABRIC PIPELINE")
         print(f"{'='*80}")
-        print(f"\n  Workspace:     {workspace_name}")
+        print(f"\n  Workspace ID:  {workspace_id}")
         print(f"  Lakehouse:     {lakehouse_name}")
         print(f"  Source:        Files/{source_folder}")
         print(f"  Output:        Files/{output_folder}")
@@ -589,13 +589,9 @@ async def deploy_fabric_pipeline(
         token = await get_access_token()
         print("   ✓ Access token obtained")
 
-        # Step 2: Find workspace
-        print(f"\n2. Finding workspace '{workspace_name}'...")
-        workspace = await find_workspace(token, workspace_name)
-        if not workspace:
-            raise RuntimeError(f"Workspace '{workspace_name}' not found")
-        workspace_id = workspace.get("id")
-        print(f"   ✓ Found workspace: {workspace_id}")
+        # Step 2: Use provided workspace_id (no lookup needed)
+        print(f"\n2. Using workspace '{workspace_id}'...")
+        print(f"   ✓ Workspace ID: {workspace_id}")
 
         # Step 3: Find lakehouse
         print(f"\n3. Finding lakehouse...")
@@ -610,7 +606,7 @@ async def deploy_fabric_pipeline(
                 response.raise_for_status()
                 lakehouses = response.json().get("value", [])
                 if not lakehouses:
-                    raise RuntimeError(f"No lakehouses found in workspace '{workspace_name}'")
+                    raise RuntimeError(f"No lakehouses found in workspace '{workspace_id}'")
                 lakehouse = lakehouses[0]
                 print(f"   ✓ Using lakehouse: {lakehouse.get('displayName')}")
         lakehouse_id = lakehouse.get("id")
@@ -630,7 +626,7 @@ async def deploy_fabric_pipeline(
                 response.raise_for_status()
                 warehouses = response.json().get("value", [])
                 if not warehouses:
-                    raise RuntimeError(f"No warehouses found in workspace '{workspace_name}'")
+                    raise RuntimeError(f"No warehouses found in workspace '{workspace_id}'")
                 warehouse = warehouses[0]
                 print(f"   ✓ Using warehouse: {warehouse.get('displayName')}")
         warehouse_id = warehouse.get("id")
@@ -805,7 +801,6 @@ async def deploy_fabric_pipeline(
         return {
             "status": "success",
             "workspace_id": workspace_id,
-            "workspace_name": workspace_name,
             "lakehouse_id": lakehouse_id,
             "lakehouse_name": lakehouse_name,
             "notebook_id": notebook_id,
