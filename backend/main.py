@@ -32,6 +32,12 @@ from models.pipeline_models import (
 # Import fabric deployment router
 from fabric_deployment_endpoint import router as fabric_router
 
+# Import conversation endpoints router
+from conversation_endpoints import router as conversation_router
+
+# Import database service
+from services.database_service import init_database, get_db_service
+
 # In-memory storage for generated pipelines (temporary - should use database in production)
 generated_pipelines = {}
 
@@ -55,8 +61,30 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Include Fabric deployment router
+# Include routers
 app.include_router(fabric_router)
+app.include_router(conversation_router)
+
+# Startup event to initialize database
+@app.on_event("startup")
+async def startup_event():
+    """Initialize database on startup"""
+    try:
+        logger.info("Initializing database...")
+        init_database(settings.DATABASE_URL)
+        logger.info("[OK] Database initialized successfully")
+
+        # Log startup
+        db_service = get_db_service()
+        db_service.log_info(
+            service="main",
+            message="Application started successfully"
+        )
+    except Exception as e:
+        logger.error(f"Failed to initialize database: {str(e)}")
+        # Don't crash the app, just log the error
+        import traceback
+        traceback.print_exc()
 
 # Initialize services
 claude_service = ClaudeAIService()
@@ -86,6 +114,68 @@ security = HTTPBearer(auto_error=False)
 # Microsoft Azure AD configuration
 AZURE_TENANT_ID = settings.FABRIC_TENANT_ID
 JWKS_URL = f"https://login.microsoftonline.com/{AZURE_TENANT_ID}/discovery/v2.0/keys"
+
+# ==================== Database Helper Functions ====================
+
+def get_or_create_conversation(
+    user_email: str,
+    workspace_id: Optional[str] = None,
+    lakehouse_id: Optional[str] = None
+) -> str:
+    """
+    Get existing conversation or create a new one
+
+    Returns:
+        conversation_id: The conversation ID
+    """
+    try:
+        db_service = get_db_service()
+
+        # Try to find an active conversation for this user and workspace
+        conversations = db_service.get_conversations_by_user(
+            user_email=user_email,
+            status="active",
+            limit=1
+        )
+
+        if conversations:
+            # Return existing conversation
+            return conversations[0]['conversation_id']
+
+        # Create new conversation
+        conversation = db_service.create_conversation(
+            user_email=user_email,
+            workspace_id=workspace_id,
+            lakehouse_id=lakehouse_id
+        )
+
+        return conversation['conversation_id']
+
+    except Exception as e:
+        logger.error(f"Error getting/creating conversation: {str(e)}")
+        # Return a temporary ID if database fails
+        import uuid
+        return str(uuid.uuid4())
+
+
+def save_chat_message(
+    conversation_id: str,
+    role: str,
+    content: str,
+    metadata: Optional[Dict[str, Any]] = None
+):
+    """Save a chat message to the database"""
+    try:
+        db_service = get_db_service()
+        db_service.add_message(
+            conversation_id=conversation_id,
+            role=role,
+            content=content,
+            metadata=metadata
+        )
+    except Exception as e:
+        logger.error(f"Error saving message: {str(e)}")
+        # Don't fail the request if message saving fails
 
 # Create SSL context with certifi certificates
 ssl_context = ssl.create_default_context(cafile=certifi.where())
@@ -206,7 +296,7 @@ async def create_blob_storage_shortcuts(workspace_id: str) -> Dict[str, Any]:
                 return {
                     "success": False,
                     "error": "Partial shortcut setup detected",
-                    "message": f"Found existing shortcuts but not complete. Bronze: {'✓' if bronze_exists else '✗'}, Silver: {'✓' if silver_exists else '✗'}"
+                    "message": f"Found existing shortcuts but not complete. Bronze: {'[OK]' if bronze_exists else '[FAILED]'}, Silver: {'[OK]' if silver_exists else '[FAILED]'}"
                 }
 
         logger.info(f"No shortcuts found, would need manual creation")
@@ -351,6 +441,13 @@ async def chat_with_ai(request: ChatRequest, user: dict = Depends(validate_token
     try:
         logger.info(f"Proactive Agent chat request for workspace: {request.workspace_id} by user: {user['email']}")
 
+        # Get or create database conversation
+        conversation_id = get_or_create_conversation(
+            user_email=user['email'],
+            workspace_id=request.workspace_id,
+            lakehouse_id=request.lakehouse_id if hasattr(request, 'lakehouse_id') else None
+        )
+
         # Get or create conversation context for this user
         session_id = f"{user['email']}_{request.workspace_id}"
         conv_context = context_manager.get_context(session_id)
@@ -364,6 +461,14 @@ async def chat_with_ai(request: ChatRequest, user: dict = Depends(validate_token
 
         if not user_message:
             raise HTTPException(status_code=400, detail="No user message found")
+
+        # Save user message to database
+        save_chat_message(
+            conversation_id=conversation_id,
+            role="user",
+            content=user_message,
+            metadata={"workspace_id": request.workspace_id}
+        )
 
         # Update conversation context with user message
         conv_context.update_context(user_message)
@@ -419,6 +524,9 @@ Shortcuts Created:
 
 You can now access your data directly in the lakehouse! Would you like me to help you create a pipeline to process this data?"""
 
+                    # Save assistant message
+                    save_chat_message(conversation_id, "assistant", success_message)
+
                     return ChatResponse(
                         role="assistant",
                         content=success_message,
@@ -426,17 +534,21 @@ You can now access your data directly in the lakehouse! Would you like me to hel
                         pipeline_preview=None,
                         shortcut_info=shortcut_result,
                         needs_confirmation=False,
-                        confirmation_action=None
+                        confirmation_action=None,
+                        conversation_id=conversation_id
                     )
                 else:
                     # Error response
-                    error_message = f"""❌ **Failed to Create Shortcuts**
+                    error_message = f"""[FAILED] **Failed to Create Shortcuts**
 
 {shortcut_result.get('message', 'Unknown error')}
 
 Error details: {shortcut_result.get('error', 'None')}
 
 Would you like me to provide manual instructions instead?"""
+
+                    # Save assistant message
+                    save_chat_message(conversation_id, "assistant", error_message)
 
                     return ChatResponse(
                         role="assistant",
@@ -445,7 +557,8 @@ Would you like me to provide manual instructions instead?"""
                         pipeline_preview=None,
                         shortcut_info=None,
                         needs_confirmation=False,
-                        confirmation_action=None
+                        confirmation_action=None,
+                        conversation_id=conversation_id
                     )
             else:
                 # User declined
@@ -685,14 +798,27 @@ The pipeline will be created in your workspace using these settings."""
         logger.info(f"Conversation stage: {conv_context.context['current_stage']}")
         logger.info(f"Pipeline context: {conv_context.get_summary()}")
 
+        # Save assistant message to database
+        assistant_content = response["content"]
+        save_chat_message(
+            conversation_id=conversation_id,
+            role="assistant",
+            content=assistant_content,
+            metadata={
+                "bing_grounding_used": response.get('bing_grounding_used', False),
+                "conversation_stage": conv_context.context['current_stage']
+            }
+        )
+
         return ChatResponse(
             role="assistant",
-            content=response["content"],
+            content=assistant_content,
             suggestions=None,
             pipeline_preview=None,
             shortcut_info=None,
             needs_confirmation=False,
-            confirmation_action=None
+            confirmation_action=None,
+            conversation_id=conversation_id
         )
 
     except Exception as e:
@@ -827,6 +953,26 @@ async def generate_pipeline(request: PipelineGenerateRequest, user: dict = Depen
     try:
         logger.info(f"Generating pipeline: {request.pipeline_name} for user: {user['email']}")
 
+        # Create job for pipeline generation
+        db_service = get_db_service()
+        job = db_service.create_job(
+            job_type="pipeline_generation",
+            workspace_id=request.workspace_id,
+            pipeline_definition=None,
+            metadata={
+                "pipeline_name": request.pipeline_name,
+                "user_email": user['email']
+            }
+        )
+        job_id = job['job_id']
+
+        # Update job status to in progress
+        db_service.update_job_status(
+            job_id=job_id,
+            status="in_progress",
+            pipeline_generation_status="in_progress"
+        )
+
         # Use the pipeline name directly from the request (now passed from frontend chat context)
         pipeline_name = request.pipeline_name
         logger.info(f"Using pipeline name: {pipeline_name}")
@@ -950,7 +1096,26 @@ async def generate_pipeline(request: PipelineGenerateRequest, user: dict = Depen
             }
         }
 
-        logger.info(f"✅ Pipeline preview generated (ID: {pipeline_id})")
+        logger.info(f"[SUCCESS] Pipeline preview generated (ID: {pipeline_id})")
+
+        # Convert pipeline definition to JSON-serializable format
+        pipeline_def_for_db = {
+            "pipeline_name": pipeline_name,
+            "activities": [activity.dict() if hasattr(activity, 'dict') else activity for activity in activities],
+            "notebooks": [notebook.dict() if hasattr(notebook, 'dict') else notebook for notebook in [notebook]],
+            "workspace_id": request.workspace_id,
+            "config": generated_pipelines[pipeline_id]["config"]
+        }
+
+        # Update job status to completed
+        db_service.update_job_status(
+            job_id=job_id,
+            status="completed",
+            pipeline_generation_status="completed",
+            pipeline_preview_status="completed",
+            pipeline_name=pipeline_name,
+            pipeline_definition=pipeline_def_for_db
+        )
 
         # Return preview (NOT deployed yet!)
         return PipelineGenerateResponse(
@@ -966,6 +1131,18 @@ async def generate_pipeline(request: PipelineGenerateRequest, user: dict = Depen
         raise
     except Exception as e:
         logger.error(f"Pipeline generation error: {str(e)}")
+
+        # Update job status to failed
+        try:
+            db_service.update_job_status(
+                job_id=job_id,
+                status="failed",
+                pipeline_generation_status="failed",
+                error_message=str(e)
+            )
+        except:
+            pass
+
         raise HTTPException(status_code=500, detail=f"Pipeline generation failed: {str(e)}")
 
 
@@ -1566,7 +1743,7 @@ async def deploy_pipeline(pipeline_id: int, request: Dict[str, Any], user: dict 
 
         # Check if deployment succeeded
         if result and result.get("pipeline_id"):
-            logger.info(f"✅ Pipeline deployed successfully to Fabric!")
+            logger.info(f"[SUCCESS] Pipeline deployed successfully to Fabric!")
             return {
                 "success": True,
                 "pipeline_id": pipeline_id,
@@ -1585,8 +1762,127 @@ async def deploy_pipeline(pipeline_id: int, request: Dict[str, Any], user: dict 
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Deployment error: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Deployment failed: {str(e)}")
+        # Handle Unicode characters in error messages safely
+        error_msg = str(e).encode('ascii', 'replace').decode('ascii')
+        logger.error(f"Deployment error: {error_msg}")
+        raise HTTPException(status_code=500, detail=f"Deployment failed: {error_msg}")
+
+# Deploy pipeline from job
+@app.post("/api/jobs/{job_id}/deploy")
+async def deploy_pipeline_from_job(job_id: str):
+    """
+    Deploy pipeline from a job stored in the database
+    """
+    try:
+        logger.info(f"Deploying pipeline from job {job_id}")
+
+        # Get job from database
+        db_service = get_db_service()
+        job = db_service.get_job(job_id)
+
+        if not job:
+            raise HTTPException(status_code=404, detail="Job not found")
+
+        if not job.get('pipeline_definition'):
+            raise HTTPException(status_code=400, detail="Job does not have a pipeline definition")
+
+        pipeline_definition = job['pipeline_definition']
+
+        # Update job status to in_progress
+        db_service.update_job_status(
+            job_id=job_id,
+            status='in_progress',
+            pipeline_deployment_status='in_progress'
+        )
+
+        # Import deployment function
+        from deploy_pipeline_api import deploy_fabric_pipeline
+
+        # Get config from pipeline definition
+        config = pipeline_definition.get('config', {})
+
+        # Deploy the pipeline
+        logger.info(f"Deploying with config: {config}")
+
+        result = await deploy_fabric_pipeline(
+            workspace_name=config.get("workspace_name", "jay-dev"),
+            lakehouse_name=config.get("lakehouse_name", "jay_dev_lakehouse"),
+            warehouse_name=config.get("warehouse_name", "jay-dev-warehouse"),
+            source_folder=config.get("source_folder", "bronze"),
+            output_folder=config.get("output_folder", "silver"),
+            pipeline_name=job.get('pipeline_name', f"Pipeline_{job_id}"),
+            notebook_name="PHI_PII_detection"
+        )
+
+        # Check if deployment succeeded
+        if result and result.get("status") == "failed":
+            # Deployment function returned failure status
+            error_msg = result.get("error", "Unknown deployment error")
+            logger.error(f"Deployment failed: {error_msg}")
+
+            # Update job with failure status
+            db_service.update_job_status(
+                job_id=job_id,
+                status='failed',
+                pipeline_deployment_status='failed',
+                error_message=error_msg
+            )
+            raise Exception(error_msg)
+
+        elif result and result.get("pipeline_id"):
+            logger.info(f"[SUCCESS] Pipeline deployed successfully to Fabric!")
+
+            # Update job with deployment results
+            db_service.update_job_status(
+                job_id=job_id,
+                status='completed',
+                pipeline_deployment_status='completed',
+                pipeline_id=result.get("pipeline_id"),
+                pipeline_name=result.get("pipeline_name")
+            )
+
+            return {
+                "success": True,
+                "job_id": job_id,
+                "fabric_pipeline_id": result.get("pipeline_id"),
+                "message": f"Pipeline '{job.get('pipeline_name')}' deployed successfully!",
+                "notebooks_deployed": 1,
+                "deployed_notebooks": [result.get("notebook_name", "PHI_PII_detection")],
+                "workspace_name": result.get("workspace_name"),
+                "lakehouse_name": result.get("lakehouse_name"),
+                "source_folder": result.get("source_folder"),
+                "output_folder": result.get("output_folder")
+            }
+        else:
+            # Unexpected result format
+            logger.error(f"Unexpected deployment result: {result}")
+            error_message = "Deployment failed - unexpected response from deployment function"
+
+            # Update job with failure status
+            db_service.update_job_status(
+                job_id=job_id,
+                status='failed',
+                pipeline_deployment_status='failed',
+                error_message=error_message
+            )
+            raise Exception(error_message)
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        # Update job with error
+        db_service = get_db_service()
+        db_service.update_job_status(
+            job_id=job_id,
+            status='failed',
+            pipeline_deployment_status='failed',
+            error_message=str(e)
+        )
+
+        # Handle Unicode characters in error messages safely
+        error_msg = str(e).encode('ascii', 'replace').decode('ascii')
+        logger.error(f"Deployment error: {error_msg}")
+        raise HTTPException(status_code=500, detail=f"Deployment failed: {error_msg}")
 
 # List pipelines
 @app.get("/api/pipelines")

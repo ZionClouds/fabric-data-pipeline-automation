@@ -8,10 +8,21 @@ Centralized Settings Configuration
 # ============================================================================
 # DATABASE CONFIGURATION
 # ============================================================================
-DATABASE_SERVER = "fabric-server.database.windows.net"
-DATABASE_NAME = "fabricdb"
-DATABASE_USER = "fabricadmin"
-DATABASE_PASSWORD = "Test@12345"
+DATABASE_SERVER = "microfabrics.database.windows.net"
+DATABASE_NAME = "fabrics"
+DATABASE_USER = "fabrics"
+DATABASE_PASSWORD = "iLoveFab@143"
+
+# SQLAlchemy Database URL - Azure SQL Server
+# URL-encode password to handle special characters
+from urllib.parse import quote_plus
+encoded_password = quote_plus(DATABASE_PASSWORD)
+DATABASE_URL = (
+    f"mssql+pyodbc://{DATABASE_USER}:{encoded_password}"
+    f"@{DATABASE_SERVER}/{DATABASE_NAME}"
+    f"?driver=ODBC+Driver+18+for+SQL+Server"
+    f"&Encrypt=yes&TrustServerCertificate=no&Connection+Timeout=30"
+)
 
 # ============================================================================
 # ANTHROPIC CLAUDE CONFIGURATION
@@ -90,7 +101,7 @@ def get_db_connection_string():
     """
     return (
         f"DRIVER={{ODBC Driver 18 for SQL Server}};"
-        f"SERVER={DATABASE_SERVER};"
+        f"SERVER=tcp:{DATABASE_SERVER},1433;"
         f"DATABASE={DATABASE_NAME};"
         f"UID={DATABASE_USER};"
         f"PWD={DATABASE_PASSWORD};"

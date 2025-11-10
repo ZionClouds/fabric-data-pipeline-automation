@@ -6,6 +6,10 @@ export const PipelineProvider = ({ children }) => {
   const [selectedWorkspace, setSelectedWorkspace] = useState(null);
   const [currentPipeline, setCurrentPipeline] = useState(null);
   const [chatMessages, setChatMessages] = useState([]);
+  const [conversationId, setConversationId] = useState(null);
+  const [currentJobId, setCurrentJobId] = useState(null);
+  const [selectedJobForPreview, setSelectedJobForPreview] = useState(null);
+  const [refreshPipelineList, setRefreshPipelineList] = useState(0);
   const [pipelineConfig, setPipelineConfig] = useState({
     source_type: null,
     tables: [],
@@ -72,6 +76,10 @@ export const PipelineProvider = ({ children }) => {
     });
   };
 
+  const triggerPipelineListRefresh = () => {
+    setRefreshPipelineList(prev => prev + 1);
+  };
+
   return (
     <PipelineContext.Provider
       value={{
@@ -82,6 +90,14 @@ export const PipelineProvider = ({ children }) => {
         chatMessages,
         addChatMessage,
         clearChat,
+        conversationId,
+        setConversationId,
+        currentJobId,
+        setCurrentJobId,
+        selectedJobForPreview,
+        setSelectedJobForPreview,
+        refreshPipelineList,
+        triggerPipelineListRefresh,
         pipelineConfig,
         updatePipelineConfig,
         resetPipeline,

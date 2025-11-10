@@ -11,6 +11,12 @@ import json
 import base64
 from typing import Optional, Dict, Any
 import msal
+import sys
+
+# Configure stdout to handle Unicode on Windows
+if sys.platform == 'win32':
+    import io
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
 
 # ============================================================================
 # CONFIGURATION
@@ -539,7 +545,7 @@ async def get_or_create_item(
         response = await client.post(url, headers=headers, data=json.dumps(payload))
         response.raise_for_status()
         item = response.json()
-        print(f"   ✓ Created {item_type}: {item.get('id')}")
+        print(f"   [OK] Created {item_type}: {item.get('id')}")
         return item
 
 
@@ -587,7 +593,7 @@ async def deploy_fabric_pipeline(
         # Step 1: Authenticate
         print("1. Authenticating...")
         token = await get_access_token()
-        print("   ✓ Access token obtained")
+        print("   [OK] Access token obtained")
 
         # Step 2: Find workspace
         print(f"\n2. Finding workspace '{workspace_name}'...")
@@ -595,7 +601,7 @@ async def deploy_fabric_pipeline(
         if not workspace:
             raise RuntimeError(f"Workspace '{workspace_name}' not found")
         workspace_id = workspace.get("id")
-        print(f"   ✓ Found workspace: {workspace_id}")
+        print(f"   [OK] Found workspace: {workspace_id}")
 
         # Step 3: Find lakehouse
         print(f"\n3. Finding lakehouse...")
@@ -612,10 +618,10 @@ async def deploy_fabric_pipeline(
                 if not lakehouses:
                     raise RuntimeError(f"No lakehouses found in workspace '{workspace_name}'")
                 lakehouse = lakehouses[0]
-                print(f"   ✓ Using lakehouse: {lakehouse.get('displayName')}")
+                print(f"   [OK] Using lakehouse: {lakehouse.get('displayName')}")
         lakehouse_id = lakehouse.get("id")
         lakehouse_display_name = lakehouse.get("displayName")
-        print(f"   ✓ Lakehouse: {lakehouse_display_name} ({lakehouse_id})")
+        print(f"   [OK] Lakehouse: {lakehouse_display_name} ({lakehouse_id})")
 
         # Step 4: Find warehouse
         print(f"\n4. Finding warehouse...")
@@ -632,10 +638,10 @@ async def deploy_fabric_pipeline(
                 if not warehouses:
                     raise RuntimeError(f"No warehouses found in workspace '{workspace_name}'")
                 warehouse = warehouses[0]
-                print(f"   ✓ Using warehouse: {warehouse.get('displayName')}")
+                print(f"   [OK] Using warehouse: {warehouse.get('displayName')}")
         warehouse_id = warehouse.get("id")
         warehouse_display_name = warehouse.get("displayName")
-        print(f"   ✓ Warehouse: {warehouse_display_name} ({warehouse_id})")
+        print(f"   [OK] Warehouse: {warehouse_display_name} ({warehouse_id})")
 
         # Step 5: Get warehouse connection
         print(f"\n5. Getting warehouse SQL connection...")
@@ -649,7 +655,7 @@ async def deploy_fabric_pipeline(
             warehouse_data = response.json()
             sql_endpoint = warehouse_data.get("properties", {}).get("connectionString")
 
-        print(f"   ✓ SQL Endpoint: {sql_endpoint}")
+        print(f"   [OK] SQL Endpoint: {sql_endpoint}")
 
         # Find or create connection
         # Use the same hardcoded connection name as deploy_pipeline.py
@@ -671,7 +677,7 @@ async def deploy_fabric_pipeline(
                     if conn.get("displayName") == connection_name:
                         warehouse_connection = conn
                         warehouse_connection_id = conn.get("id")
-                        print(f"   ✓ Found existing connection: {warehouse_connection_id}")
+                        print(f"   [OK] Found existing connection: {warehouse_connection_id}")
                         break
             elif response.status_code == 404:
                 print(f"   ⚠️  Connections API not available (404)")
@@ -726,7 +732,7 @@ async def deploy_fabric_pipeline(
                     if create_response.status_code in [200, 201]:
                         warehouse_connection = create_response.json()
                         warehouse_connection_id = warehouse_connection.get("id")
-                        print(f"   ✓ Created new connection: {warehouse_connection_id}")
+                        print(f"   [OK] Created new connection: {warehouse_connection_id}")
                     elif create_response.status_code == 404:
                         print(f"   ⚠️  Cannot create connection - API not available (404)")
                         warehouse_connection_id = None
@@ -767,7 +773,7 @@ async def deploy_fabric_pipeline(
         print(f"   - Notebook preview: {notebook_def[:80]}...")
         
         await update_notebook_definition(token, workspace_id, notebook_id, notebook_def)
-        print(f"   ✓ Notebook deployed: {notebook_id}")
+        print(f"   [OK] Notebook deployed: {notebook_id}")
 
         # Step 7: Create pipeline
         print(f"\n7. Deploying pipeline '{pipeline_name}'...")
@@ -795,7 +801,7 @@ async def deploy_fabric_pipeline(
         print(f"   - Pipeline preview: {pipeline_def[:80]}...")
         
         await update_pipeline_definition(token, workspace_id, pipeline_id, pipeline_def)
-        print(f"   ✓ Pipeline deployed: {pipeline_id}")
+        print(f"   [OK] Pipeline deployed: {pipeline_id}")
 
         # Success
         print(f"\n{'='*80}")
@@ -819,7 +825,7 @@ async def deploy_fabric_pipeline(
 
     except Exception as e:
         print(f"\n{'='*80}")
-        print("  ❌ DEPLOYMENT FAILED")
+        print("  [FAILED] DEPLOYMENT FAILED")
         print(f"{'='*80}")
         print(f"\n  Error: {str(e)}\n")
 
@@ -967,7 +973,7 @@ def modify_pipeline_definition(
         "connection": warehouse_connection_id
     }
 
-    print("   ✓ Pipeline modification complete!")
+    print("   [OK] Pipeline modification complete!")
     return json.dumps(data)
 
 
@@ -1045,7 +1051,7 @@ async def update_notebook_definition(token: str, workspace_id: str, notebook_id:
         response = await client.post(url, headers=headers, data=json.dumps(update_payload))
         
         if response.status_code not in [200, 202]:
-            print(f"   ❌ Notebook update failed: {response.status_code}")
+            print(f"   [FAILED] Notebook update failed: {response.status_code}")
             print(f"   Response: {response.text}")
             try:
                 error_details = response.json()
@@ -1102,7 +1108,7 @@ async def update_pipeline_definition(token: str, workspace_id: str, pipeline_id:
         response = await client.post(url, headers=headers, data=json.dumps(update_payload))
         
         if response.status_code not in [200, 202]:
-            print(f"   ❌ Pipeline update failed: {response.status_code}")
+            print(f"   [FAILED] Pipeline update failed: {response.status_code}")
             print(f"   Response: {response.text}")
             try:
                 error_details = response.json()
