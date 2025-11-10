@@ -4,7 +4,18 @@
       "Bash(tree:*)",
       "Bash(nul)",
       "Bash(dir /B /S)",
-      "Bash(findstr:*)"
+      "Bash(findstr:*)",
+      "Bash(pip install:*)",
+      "Bash(python init_database.py:*)",
+      "Bash(dir:*)",
+      "Bash(npm install:*)",
+      "Bash(npm start)",
+      "Bash(timeout /t 10 /nobreak)",
+      "Bash(uvicorn:*)",
+      "Bash(python:*)",
+      "Bash(timeout /t 3 /nobreak)",
+      "Bash(curl:*)",
+      "Bash(ping:*)"
     ],
     "deny": [],
     "ask": []

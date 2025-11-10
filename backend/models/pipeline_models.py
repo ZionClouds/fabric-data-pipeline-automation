@@ -115,6 +115,8 @@ class ChatResponse(BaseModel):
     shortcut_info: Optional[Dict[str, Any]] = None  # Info about created shortcuts
     needs_confirmation: Optional[bool] = None  # Flag if waiting for user confirmation
     confirmation_action: Optional[str] = None  # What action needs confirmation (e.g., "create_shortcut")
+    conversation_id: Optional[str] = None  # Database conversation ID
+    job_id: Optional[str] = None  # Database job ID if applicable
 
 class NotebookCode(BaseModel):
     notebook_name: str

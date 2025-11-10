@@ -29,11 +29,18 @@ const AIChat = () => {
     selectedWorkspace,
     selectedLakehouse,
     selectedWarehouse,
+
     chatMessages,
     addChatMessage,
     setCurrentPipeline,
     clearChat,
-    updatePipelineConfig
+
+    updatePipelineConfig,
+    conversationId,
+    setConversationId,
+    currentJobId,
+    setCurrentJobId
+
   } = usePipeline();
   const { user } = useAuth();
   const [inputMessage, setInputMessage] = useState('');
@@ -49,13 +56,54 @@ const AIChat = () => {
     scrollToBottom();
   }, [chatMessages]);
 
+  // Restore conversation_id and messages from database on mount
+  useEffect(() => {
+    const loadConversationHistory = async () => {
+      const storedConversationId = localStorage.getItem('conversationId');
+
+      if (storedConversationId && !conversationId && chatMessages.length === 0) {
+        setConversationId(storedConversationId);
+        console.log('Restored conversation ID from localStorage:', storedConversationId);
+
+        try {
+          // Fetch conversation with messages from database
+          const response = await fetch(`http://localhost:8080/api/conversations/${storedConversationId}`);
+
+          if (response.ok) {
+            const data = await response.json();
+            console.log('Loaded conversation from database:', data);
+
+            // Restore messages to chat
+            if (data.messages && data.messages.length > 0) {
+              data.messages.forEach(msg => {
+                addChatMessage(msg.role, msg.content);
+              });
+              console.log(`Restored ${data.messages.length} messages from database`);
+            }
+          } else {
+            console.warn('Conversation not found in database, starting fresh');
+            localStorage.removeItem('conversationId');
+          }
+        } catch (error) {
+          console.error('Failed to load conversation history:', error);
+          // Don't block the user if loading fails
+        }
+      }
+    };
+
+    loadConversationHistory();
+  }, []);
+
   // Clear chat when workspace changes
   useEffect(() => {
     if (selectedWorkspace && prevWorkspaceRef.current && prevWorkspaceRef.current.id !== selectedWorkspace.id) {
       clearChat();
+      // Clear conversation ID when switching workspaces
+      setConversationId(null);
+      localStorage.removeItem('conversationId');
     }
     prevWorkspaceRef.current = selectedWorkspace;
-  }, [selectedWorkspace, clearChat]);
+  }, [selectedWorkspace, clearChat, setConversationId]);
 
   const handleSendMessage = async (messageToSend = null) => {
     const messageContent = messageToSend || inputMessage.trim();
@@ -103,6 +151,21 @@ const AIChat = () => {
 
       // Call Claude API
       const response = await pipelineApi.chat(requestData);
+
+      // Save conversation_id from response
+      if (response.data.conversation_id) {
+        setConversationId(response.data.conversation_id);
+        console.log('Conversation ID:', response.data.conversation_id);
+
+        // Store in localStorage for persistence across page refreshes
+        localStorage.setItem('conversationId', response.data.conversation_id);
+      }
+
+      // Save job_id if present
+      if (response.data.job_id) {
+        setCurrentJobId(response.data.job_id);
+        console.log('Job ID:', response.data.job_id);
+      }
 
       // Ensure content is a string
       const content = typeof response.data.content === 'string'
