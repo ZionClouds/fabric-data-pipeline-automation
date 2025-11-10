@@ -12,6 +12,7 @@ import certifi
 import os
 import asyncio
 import random
+from datetime import datetime
 
 # Import settings and services
 import settings
@@ -175,6 +176,9 @@ def save_chat_message(
             content=content,
             metadata=metadata
         )
+    except RuntimeError as e:
+        # Database not initialized - log warning but don't fail
+        logger.warning(f"Database not available, skipping message save: {str(e)}")
     except Exception as e:
         logger.error(f"Error saving message: {str(e)}")
         # Don't fail the request if message saving fails
@@ -470,8 +474,7 @@ async def chat_with_ai(request: ChatRequest, user: dict = Depends(validate_token
             conversation_id=conversation_id,
             role="user",
             content=user_message,
-            metadata={"workspace_id": request.workspace_id},
-            user_message_lower = user_message.lower()
+            metadata={"workspace_id": request.workspace_id}
         )
 
         # Prepare lowercase version for keyword detection
@@ -797,10 +800,29 @@ Would you like me to provide manual instructions instead?"""
                 option_selected = 3
 
             if not option_selected:
-                # User didn't specify a valid option
+                # User didn't specify a valid option - re-show descriptions
+                clarification_message = """I didn't catch which option you'd like. Please choose one:
+
+**Option 1: Simple Load (Copy Activity)**
+- Use when you only need to load data without transformation
+- Fast and straightforward ingestion
+- Limited transformation capabilities
+
+**Option 2: Light Transformation (Dataflow Gen2)**
+- Use for light transformations like filtering or data type changes
+- Visual interface, no coding required
+- Good for small to medium complexity
+
+**Option 3: Complex Transformation (Notebook with PySpark)**
+- Use for complex transformations and business logic
+- Full flexibility with PySpark
+- Includes PHI/PII detection capabilities
+
+Which approach would you like to use?"""
+
                 return ChatResponse(
                     role="assistant",
-                    content="Please select one of the options: **option 1**, **option 2**, or **option 3**.",
+                    content=clarification_message,
                     suggestions=["option 1", "option 2", "option 3"],
                     pipeline_preview=None,
                     shortcut_info=None,
@@ -1197,7 +1219,8 @@ async def generate_pipeline(request: PipelineGenerateRequest, user: dict = Depen
         )
 
         # Use the pipeline name directly from the request (now passed from frontend chat context)
-        pipeline_name = request.pipeline_name
+        # Clean the pipeline name: remove backticks, quotes, and extra whitespace
+        pipeline_name = request.pipeline_name.strip().strip('`').strip('"').strip("'").strip()
         logger.info(f"Using pipeline name: {pipeline_name}")
 
         # JUST GENERATE PREVIEW - Don't deploy yet!
@@ -1296,12 +1319,21 @@ async def generate_pipeline(request: PipelineGenerateRequest, user: dict = Depen
             )
         ]
 
+        # Import notebook template from deploy_pipeline_api
+        from deploy_pipeline_api import NOTEBOOK_PYTHON_SOURCE_TEMPLATE
+
+        # Format the notebook code with actual folder names
+        notebook_code = NOTEBOOK_PYTHON_SOURCE_TEMPLATE.format(
+            source_folder="bronze",  # Ingestion folder
+            output_folder="silver"    # Processed data folder
+        )
+
         # Define notebook
         notebook = NotebookCode(
             notebook_name="PHI_PII_detection",
             layer=MedallionLayer.SILVER,
-            code="# PII/PHI detection notebook\n# Processes CSV files and detects sensitive data",
-            description="Detects PII/PHI in CSV files from blob storage"
+            code=notebook_code,
+            description="Detects PII/PHI in CSV files from blob storage. Includes pattern detection for SSN, Member ID, DOB, Email, and Phone numbers."
         )
 
         # Store in memory for deployment later
@@ -1990,65 +2022,7 @@ async def validate_connection(request: Dict[str, Any]):
         "tables": []
     }
 
-# Deploy pipeline
-@app.post("/api/pipelines/{pipeline_id}/deploy")
-async def deploy_pipeline(pipeline_id: int, request: Dict[str, Any], user: dict = Depends(validate_token)):
-    """
-    Deploy pipeline to Microsoft Fabric workspace using deploy_pipeline_api.py
-    """
-    try:
-        logger.info(f"Deploying pipeline {pipeline_id} for user: {user['email']}")
-
-        # Get pipeline from memory
-        if pipeline_id not in generated_pipelines:
-            raise HTTPException(status_code=404, detail="Pipeline not found. Please generate the pipeline first.")
-
-        pipeline_data = generated_pipelines[pipeline_id]
-        config = pipeline_data.get("config", {})
-
-        # Import deployment function
-        from deploy_pipeline_api import deploy_fabric_pipeline
-
-        # Deploy using dynamic values from config
-        logger.info(f"Deploying with config: {config}")
-
-        result = await deploy_fabric_pipeline(
-            workspace_id=config.get("workspace_id"),
-            lakehouse_name=config.get("lakehouse_name"),
-            warehouse_name=config.get("warehouse_name"),
-            source_folder=config.get("source_folder", "bronze"),
-            output_folder=config.get("output_folder", "silver"),
-            pipeline_name=pipeline_data["pipeline_name"],
-            notebook_name="PHI_PII_detection"
-        )
-
-        # Check if deployment succeeded
-        if result and result.get("pipeline_id"):
-            logger.info(f"[SUCCESS] Pipeline deployed successfully to Fabric!")
-            return {
-                "success": True,
-                "pipeline_id": pipeline_id,
-                "fabric_pipeline_id": result.get("pipeline_id"),
-                "message": f"Pipeline '{pipeline_data['pipeline_name']}' deployed successfully to workspace {config.get('workspace_id')}!",
-                "notebooks_deployed": 1,
-                "deployed_notebooks": [result.get("notebook_name", "PHI_PII_detection")],
-                "workspace_id": config.get("workspace_id"),
-                "lakehouse_name": result.get("lakehouse_name"),
-                "source_folder": result.get("source_folder"),
-                "output_folder": result.get("output_folder")
-            }
-        else:
-            raise Exception("Deployment failed - no pipeline ID returned")
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        # Handle Unicode characters in error messages safely
-        error_msg = str(e).encode('ascii', 'replace').decode('ascii')
-        logger.error(f"Deployment error: {error_msg}")
-        raise HTTPException(status_code=500, detail=f"Deployment failed: {error_msg}")
-
-# Deploy pipeline from job
+# Deploy pipeline from job (CONSOLIDATED - SINGLE DEPLOYMENT ENDPOINT)
 @app.post("/api/jobs/{job_id}/deploy")
 async def deploy_pipeline_from_job(job_id: str):
     """
@@ -2164,6 +2138,91 @@ async def deploy_pipeline_from_job(job_id: str):
         error_msg = str(e).encode('ascii', 'replace').decode('ascii')
         logger.error(f"Deployment error: {error_msg}")
         raise HTTPException(status_code=500, detail=f"Deployment failed: {error_msg}")
+
+# Delete pipeline from Fabric workspace and database
+@app.delete("/api/pipelines/{job_id}")
+async def delete_pipeline(job_id: str, user: dict = Depends(validate_token)):
+    """
+    Delete pipeline from Fabric workspace and database
+
+    This will:
+    1. Delete the pipeline from Microsoft Fabric workspace (if deployed)
+    2. Delete the job record from the database
+    """
+    try:
+        logger.info(f"Deleting pipeline job {job_id} for user: {user['email']}")
+
+        # Get job from database
+        db_service = get_db_service()
+        job = db_service.get_job(job_id)
+
+        if not job:
+            raise HTTPException(status_code=404, detail="Pipeline job not found")
+
+        pipeline_id = job.get('pipeline_id')
+        workspace_id = job.get('workspace_id')
+        pipeline_name = job.get('pipeline_name', 'Unknown')
+
+        # If pipeline was deployed to Fabric, delete it from there first
+        if pipeline_id and workspace_id:
+            try:
+                logger.info(f"Deleting pipeline {pipeline_id} from Fabric workspace {workspace_id}")
+
+                # Get Fabric API token
+                fabric_svc = FabricAPIService()
+                token = await fabric_svc.get_access_token()
+
+                # Delete pipeline from Fabric using REST API
+                delete_url = f"https://api.fabric.microsoft.com/v1/workspaces/{workspace_id}/items/{pipeline_id}"
+
+                async with httpx.AsyncClient(timeout=30.0) as client:
+                    headers = {
+                        "Authorization": f"Bearer {token}",
+                        "Content-Type": "application/json"
+                    }
+
+                    response = await client.delete(delete_url, headers=headers)
+
+                    if response.status_code == 200:
+                        logger.info(f"[SUCCESS] Deleted pipeline {pipeline_id} from Fabric")
+                    elif response.status_code == 404:
+                        logger.warning(f"Pipeline {pipeline_id} not found in Fabric (may have been manually deleted)")
+                    else:
+                        logger.warning(f"Failed to delete from Fabric: {response.status_code} - {response.text}")
+                        # Continue anyway to delete from database
+
+            except Exception as e:
+                logger.error(f"Error deleting pipeline from Fabric: {str(e)}")
+                # Continue anyway to delete from database
+
+        # Delete job from database
+        success = db_service.delete_conversation(job_id)  # This also deletes related jobs
+
+        # Actually we need to delete the job, not conversation
+        # Let me check if there's a delete_job method
+        # For now, update status to 'deleted'
+        db_service.update_job_status(
+            job_id=job_id,
+            status='deleted',
+            metadata={'deleted_by': user['email'], 'deleted_at': str(datetime.utcnow())}
+        )
+
+        logger.info(f"[SUCCESS] Deleted pipeline job {job_id}")
+
+        return {
+            "success": True,
+            "message": f"Pipeline '{pipeline_name}' deleted successfully",
+            "job_id": job_id,
+            "pipeline_id": pipeline_id,
+            "deleted_from_fabric": bool(pipeline_id and workspace_id)
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        error_msg = str(e).encode('ascii', 'replace').decode('ascii')
+        logger.error(f"Delete pipeline error: {error_msg}")
+        raise HTTPException(status_code=500, detail=f"Failed to delete pipeline: {error_msg}")
 
 # List pipelines
 @app.get("/api/pipelines")

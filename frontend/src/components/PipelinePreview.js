@@ -66,7 +66,7 @@ const PipelinePreview = () => {
         setDeploySuccess(null);
 
         // Fetch job details from API
-        const response = await fetch(`http://localhost:8080/api/jobs/${selectedJobForPreview}`);
+        const response = await fetch(`http://localhost:8000/api/jobs/${selectedJobForPreview}`);
 
         if (!response.ok) {
           throw new Error(`Failed to fetch job details: ${response.statusText}`);
@@ -148,37 +148,33 @@ const PipelinePreview = () => {
   const handleDeployPipeline = async () => {
     if (!generatedPipeline) return;
 
+    // All pipelines must have a job_id from database
+    if (!currentJobId) {
+      setError('Cannot deploy: Pipeline not found in database. Please regenerate the pipeline.');
+      return;
+    }
+
     try {
       setIsDeploying(true);
       setError(null);
       setDeploySuccess(null);
 
-      let response;
-
-      // If we have a job_id, use the job-based deployment endpoint
-      if (currentJobId) {
-        const res = await fetch(`http://localhost:8080/api/jobs/${currentJobId}/deploy`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json'
-          }
-        });
-
-        if (!res.ok) {
-          const errorData = await res.json();
-          throw new Error(errorData.detail || 'Deployment failed');
+      // Use job-based deployment endpoint (CONSOLIDATED ENDPOINT)
+      const res = await fetch(`http://localhost:8000/api/jobs/${currentJobId}/deploy`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
         }
+      });
 
-        response = { data: await res.json() };
-      } else {
-        // Fallback to old pipeline-based deployment for in-memory pipelines
-        response = await pipelineApi.deployPipeline(
-          generatedPipeline.pipeline_id,
-          selectedWorkspace.id
-        );
+      if (!res.ok) {
+        const errorData = await res.json();
+        throw new Error(errorData.detail || 'Deployment failed');
       }
 
-      setDeploySuccess(`Pipeline deployed successfully! Fabric Pipeline ID: ${response.data.fabric_pipeline_id}`);
+      const response = await res.json();
+
+      setDeploySuccess(`Pipeline deployed successfully! Fabric Pipeline ID: ${response.fabric_pipeline_id}`);
 
       // Trigger refresh of pipeline list to show updated deployment status
       if (triggerPipelineListRefresh) {

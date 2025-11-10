@@ -15,7 +15,15 @@
       "Bash(python:*)",
       "Bash(timeout /t 3 /nobreak)",
       "Bash(curl:*)",
-      "Bash(ping:*)"
+      "Bash(ping:*)",
+      "Bash(git -C /Users/jayavardhanareddy/Desktop/fabric-data-pipeline-automation log --name-status --pretty=format: -n 10)",
+      "Bash(python3:*)",
+      "Bash(odbcinst:*)",
+      "Bash(pip3 list:*)",
+      "Bash(brew list:*)",
+      "Bash(pip3 uninstall:*)",
+      "Bash(pip3 install:*)",
+      "Bash(lsof:*)"
     ],
     "deny": [],
     "ask": []

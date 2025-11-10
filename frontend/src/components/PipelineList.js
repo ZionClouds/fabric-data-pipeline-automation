@@ -16,7 +16,9 @@ import {
   CheckCircle as CheckCircleIcon,
   Error as ErrorIcon,
   HourglassEmpty as PendingIcon,
-  Refresh as RefreshIcon
+  Refresh as RefreshIcon,
+  Delete as DeleteIcon,
+  Storage as StorageIcon
 } from '@mui/icons-material';
 import { usePipeline } from '../contexts/PipelineContext';
 
@@ -32,7 +34,7 @@ const PipelineList = () => {
       setError(null);
 
       // Fetch jobs from database
-      const response = await fetch('http://localhost:8080/api/jobs?job_type=pipeline_generation&limit=50');
+      const response = await fetch('http://localhost:8000/api/jobs?job_type=pipeline_generation&limit=50');
 
       if (!response.ok) {
         throw new Error(`Failed to fetch pipelines: ${response.statusText}`);
@@ -42,7 +44,7 @@ const PipelineList = () => {
 
       // Filter and transform jobs to pipeline format
       const pipelineData = jobs
-        .filter(job => job.pipeline_name && job.pipeline_definition)
+        .filter(job => job.pipeline_name && job.pipeline_definition && job.status !== 'deleted')
         .map(job => ({
           job_id: job.job_id,
           pipeline_name: job.pipeline_name,
@@ -156,6 +158,45 @@ const PipelineList = () => {
     window.open(fabricUrl, '_blank', 'noopener,noreferrer');
   };
 
+  const handleDeletePipeline = async (jobId, pipelineName) => {
+    // Confirm deletion
+    if (!window.confirm(`Are you sure you want to delete pipeline "${pipelineName}"?\n\nThis will delete the pipeline from both the Fabric workspace and the database.`)) {
+      return;
+    }
+
+    try {
+      setLoading(true);
+      setError(null);
+
+      const response = await fetch(`http://localhost:8000/api/pipelines/${jobId}`, {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.detail || `Failed to delete pipeline: ${response.statusText}`);
+      }
+
+      const result = await response.json();
+      console.log('Delete result:', result);
+
+      // Show success message
+      alert(`Pipeline "${pipelineName}" deleted successfully!`);
+
+      // Refresh pipeline list
+      await fetchPipelines();
+    } catch (err) {
+      console.error('Error deleting pipeline:', err);
+      setError(err.message);
+      alert(`Failed to delete pipeline: ${err.message}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   if (loading) {
     return (
       <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '400px' }}>
@@ -195,14 +236,50 @@ const PipelineList = () => {
       </Box>
 
       {pipelines.length === 0 ? (
-        <Card sx={{ textAlign: 'center', py: 8 }}>
+        <Card sx={{ textAlign: 'center', py: 8, bgcolor: 'rgba(102, 126, 234, 0.05)' }}>
           <CardContent>
-            <Typography variant="h6" color="text.secondary" gutterBottom>
-              No pipelines found
+            <Box sx={{ mb: 3 }}>
+              <StorageIcon sx={{ fontSize: 64, color: 'rgba(102, 126, 234, 0.5)', mb: 2 }} />
+            </Box>
+            <Typography variant="h5" color="text.primary" gutterBottom sx={{ fontWeight: 600 }}>
+              No Pipelines Yet
             </Typography>
-            <Typography variant="body2" color="text.secondary">
-              Create your first pipeline using the AI Chat or Pipeline Preview page.
+            <Typography variant="body1" color="text.secondary" sx={{ mb: 3, maxWidth: 500, mx: 'auto' }}>
+              Get started by creating your first data pipeline. You can use our AI Chat to build pipelines automatically or create them manually.
             </Typography>
+            <Box sx={{ display: 'flex', gap: 2, justifyContent: 'center', flexWrap: 'wrap' }}>
+              <Button
+                variant="contained"
+                color="primary"
+                size="large"
+                onClick={() => window.location.href = '/'}
+                sx={{
+                  textTransform: 'none',
+                  px: 3,
+                  py: 1.5,
+                  fontSize: '15px',
+                  fontWeight: 600
+                }}
+              >
+                Create Pipeline with AI Chat
+              </Button>
+              <Button
+                variant="outlined"
+                size="large"
+                onClick={() => window.location.href = '/pipeline-preview'}
+                sx={{
+                  textTransform: 'none',
+                  px: 3,
+                  py: 1.5,
+                  fontSize: '15px',
+                  fontWeight: 600,
+                  borderColor: 'rgba(102, 126, 234, 0.5)',
+                  color: '#667eea'
+                }}
+              >
+                View Pipeline Preview
+              </Button>
+            </Box>
           </CardContent>
         </Card>
       ) : (
@@ -311,6 +388,14 @@ const PipelineList = () => {
                   </Button>
                   <Button size="small" onClick={() => handleViewDetails(pipeline.job_id)}>
                     View Details
+                  </Button>
+                  <Button
+                    size="small"
+                    color="error"
+                    startIcon={<DeleteIcon />}
+                    onClick={() => handleDeletePipeline(pipeline.job_id, pipeline.pipeline_name)}
+                  >
+                    Delete
                   </Button>
                 </CardActions>
               </Card>

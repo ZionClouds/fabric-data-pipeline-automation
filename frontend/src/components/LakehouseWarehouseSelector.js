@@ -48,14 +48,14 @@ const LakehouseWarehouseSelector = () => {
 
       // Fetch lakehouses
       const lakehousesRes = await axios.get(
-        `${process.env.REACT_APP_API_URL || 'http://localhost:8080'}/api/workspaces/${selectedWorkspace.id}/lakehouses`,
+        `${process.env.REACT_APP_API_URL || 'http://localhost:8000'}/api/workspaces/${selectedWorkspace.id}/lakehouses`,
         config
       );
       setLakehouses(lakehousesRes.data || []);
 
       // Fetch warehouses
       const warehousesRes = await axios.get(
-        `${process.env.REACT_APP_API_URL || 'http://localhost:8080'}/api/workspaces/${selectedWorkspace.id}/warehouses`,
+        `${process.env.REACT_APP_API_URL || 'http://localhost:8000'}/api/workspaces/${selectedWorkspace.id}/warehouses`,
         config
       );
       setWarehouses(warehousesRes.data || []);

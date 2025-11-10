@@ -14,7 +14,6 @@ DATABASE_USER = "fabrics"
 DATABASE_PASSWORD = "iLoveFab@143"
 
 # SQLAlchemy Database URL - Azure SQL Server
-# URL-encode password to handle special characters
 from urllib.parse import quote_plus
 encoded_password = quote_plus(DATABASE_PASSWORD)
 DATABASE_URL = (

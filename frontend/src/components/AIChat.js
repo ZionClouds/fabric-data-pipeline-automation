@@ -47,6 +47,7 @@ const AIChat = () => {
   const [isLoading, setIsLoading] = useState(false);
   const messagesEndRef = useRef(null);
   const prevWorkspaceRef = useRef(null);
+  const inputRef = useRef(null);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -67,7 +68,7 @@ const AIChat = () => {
 
         try {
           // Fetch conversation with messages from database
-          const response = await fetch(`http://localhost:8080/api/conversations/${storedConversationId}`);
+          const response = await fetch(`http://localhost:8000/api/conversations/${storedConversationId}`);
 
           if (response.ok) {
             const data = await response.json();
@@ -193,6 +194,13 @@ const AIChat = () => {
       addChatMessage('assistant', '❌ Sorry, I encountered an error. Please try again.');
     } finally {
       setIsLoading(false);
+
+      // Auto-focus input field after response
+      setTimeout(() => {
+        if (inputRef.current) {
+          inputRef.current.focus();
+        }
+      }, 100);
     }
   };
 
@@ -825,6 +833,8 @@ const AIChat = () => {
             placeholder="Ask about data sources, transformations, or pipeline architecture..."
             disabled={isLoading}
             size="small"
+            inputRef={inputRef}
+            autoFocus
             InputProps={{
               endAdornment: (
                 <InputAdornment position="end">

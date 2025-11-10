@@ -579,6 +579,9 @@ async def deploy_fabric_pipeline(
     """
 
     try:
+        # Clean pipeline name: remove backticks, quotes, and extra whitespace
+        pipeline_name = pipeline_name.strip().strip('`').strip('"').strip("'").strip()
+
         print(f"\n{'='*80}")
         print(f"  DEPLOYING FABRIC PIPELINE")
         print(f"{'='*80}")
@@ -595,15 +598,24 @@ async def deploy_fabric_pipeline(
         token = await get_access_token()
         print("   [OK] Access token obtained")
 
-        # Step 2: Find workspace
-        print(f"\n2. Finding workspace '{workspace_name}'...")
-        workspace = await find_workspace(token, workspace_name)
-        if not workspace:
-            raise RuntimeError(f"Workspace '{workspace_name}' not found")
-        workspace_id = workspace.get("id")
-        print(f"   [OK] Found workspace: {workspace_id}")
-        print(f"\n2. Using workspace '{workspace_id}'...")
-        print(f"   ✓ Workspace ID: {workspace_id}")
+        # Step 2: Validate/Find workspace
+        # Check if workspace_id is a valid UUID (ID) or a name
+        import re
+        uuid_pattern = r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+        is_uuid = bool(re.match(uuid_pattern, workspace_id.lower()))
+
+        if is_uuid:
+            # workspace_id is already a UUID, use it directly
+            print(f"\n2. Using workspace ID: {workspace_id}")
+            print(f"   ✓ Workspace ID: {workspace_id}")
+        else:
+            # workspace_id is actually a workspace name, look it up
+            print(f"\n2. Finding workspace '{workspace_id}'...")
+            workspace = await find_workspace(token, workspace_id)
+            if not workspace:
+                raise RuntimeError(f"Workspace '{workspace_id}' not found")
+            workspace_id = workspace.get("id")
+            print(f"   [OK] Found workspace: {workspace_id}")
 
 
         # Step 3: Find lakehouse
