@@ -26,6 +26,7 @@ import {
   Logout as LogoutIcon
 } from '@mui/icons-material';
 import WorkspaceSelector from './WorkspaceSelector';
+import LakehouseWarehouseSelector from './LakehouseWarehouseSelector';
 import AIChat from './AIChat';
 import PipelinePreview from './PipelinePreview';
 import PipelineList from './PipelineList';
@@ -33,7 +34,7 @@ import logo from '../assets/images/zionai.png';
 
 const PipelineBuilderLayout = () => {
   const { user, logout } = useAuth();
-  const { selectedWorkspace } = usePipeline();
+  const { selectedWorkspace, selectedJobForPreview } = usePipeline();
   const [activeTab, setActiveTab] = useState('chat');
   const [workspaces, setWorkspaces] = useState([]);
   const [isLoadingWorkspaces, setIsLoadingWorkspaces] = useState(true);
@@ -42,6 +43,13 @@ const PipelineBuilderLayout = () => {
   useEffect(() => {
     loadWorkspaces();
   }, [user]);
+
+  // Auto-switch to preview tab when a job is selected for preview
+  useEffect(() => {
+    if (selectedJobForPreview) {
+      setActiveTab('preview');
+    }
+  }, [selectedJobForPreview]);
 
   const loadWorkspaces = async () => {
     try {
@@ -192,6 +200,11 @@ const PipelineBuilderLayout = () => {
               workspaces={workspaces}
               isLoading={isLoadingWorkspaces}
             />
+
+            {/* Lakehouse and Warehouse Selectors */}
+            <Box sx={{ mt: 2 }}>
+              <LakehouseWarehouseSelector />
+            </Box>
           </Box>
         )}
 

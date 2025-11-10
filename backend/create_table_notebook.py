@@ -53,22 +53,22 @@ result.show()
     print("   → Obtaining access token...")
     try:
         token = await fabric_service.get_access_token()
-        print(f"   ✓ Token obtained")
+        print(f"   [OK] Token obtained")
     except Exception as e:
-        print(f"\n❌ ERROR: Failed to get access token: {e}")
+        print(f"\n[ERROR] ERROR: Failed to get access token: {e}")
         return
 
     # Get workspaces
     print("\n2. Fetching workspaces...")
     try:
         workspaces = await fabric_service.list_workspaces()
-        print(f"   ✓ Found {len(workspaces)} workspace(s)")
+        print(f"   [OK] Found {len(workspaces)} workspace(s)")
     except Exception as e:
-        print(f"\n❌ ERROR: Failed to fetch workspaces: {e}")
+        print(f"\n[ERROR] ERROR: Failed to fetch workspaces: {e}")
         return
 
     if not workspaces:
-        print("\n❌ ERROR: No workspaces found.")
+        print("\n[ERROR] ERROR: No workspaces found.")
         return
 
     # Find harshith-dev workspace
@@ -81,7 +81,7 @@ result.show()
             break
 
     if not target_workspace:
-        print("\n   ⚠️  'harshith-dev' workspace not found.")
+        print("\n   [WARNING]  'harshith-dev' workspace not found.")
         print("\n   Available workspaces:")
         for i, ws in enumerate(workspaces):
             print(f"   {i+1}. {ws.get('displayName')} (ID: {ws.get('id')})")
@@ -97,8 +97,8 @@ result.show()
 
     workspace_id = target_workspace.get('id')
     workspace_name = target_workspace.get('displayName')
-    print(f"   ✓ Using workspace: {workspace_name}")
-    print(f"   ✓ Workspace ID: {workspace_id}")
+    print(f"   [OK] Using workspace: {workspace_name}")
+    print(f"   [OK] Workspace ID: {workspace_id}")
 
     # Create notebook
     print("\n4. Creating notebook...")
@@ -126,9 +126,9 @@ result.show()
 
         if notebook_result.get("success"):
             notebook_id = notebook_result.get("notebook_id")
-            print(f"\n   ✅ Notebook created successfully!")
-            print(f"   ✓ Notebook ID: {notebook_id}")
-            print(f"   ✓ Notebook Name: {notebook_name}")
+            print(f"\n   [SUCCESS] Notebook created successfully!")
+            print(f"   [OK] Notebook ID: {notebook_id}")
+            print(f"   [OK] Notebook Name: {notebook_name}")
             print()
             print_header("NEXT STEPS")
             print()
@@ -152,7 +152,7 @@ result.show()
             print()
             print("="*80)
         else:
-            print(f"\n❌ ERROR: Failed to create notebook: {notebook_result.get('error')}")
+            print(f"\n[ERROR] ERROR: Failed to create notebook: {notebook_result.get('error')}")
             print()
             print("   Possible issues:")
             print("   - Service principal lacks notebook creation permissions")
@@ -166,7 +166,7 @@ result.show()
             print(table_creation_sql)
             print("   " + "-"*76)
     except Exception as e:
-        print(f"\n❌ ERROR: Failed to create notebook: {e}")
+        print(f"\n[ERROR] ERROR: Failed to create notebook: {e}")
         print()
         print("   You can create the table manually using this SQL:")
         print()

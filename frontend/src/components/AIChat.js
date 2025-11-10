@@ -25,12 +25,29 @@ import {
 } from '@mui/icons-material';
 
 const AIChat = () => {
-  const { selectedWorkspace, chatMessages, addChatMessage, setCurrentPipeline, clearChat, updatePipelineConfig } = usePipeline();
+  const {
+    selectedWorkspace,
+    selectedLakehouse,
+    selectedWarehouse,
+
+    chatMessages,
+    addChatMessage,
+    setCurrentPipeline,
+    clearChat,
+
+    updatePipelineConfig,
+    conversationId,
+    setConversationId,
+    currentJobId,
+    setCurrentJobId
+
+  } = usePipeline();
   const { user } = useAuth();
   const [inputMessage, setInputMessage] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const messagesEndRef = useRef(null);
   const prevWorkspaceRef = useRef(null);
+  const inputRef = useRef(null);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -40,13 +57,54 @@ const AIChat = () => {
     scrollToBottom();
   }, [chatMessages]);
 
+  // Restore conversation_id and messages from database on mount
+  useEffect(() => {
+    const loadConversationHistory = async () => {
+      const storedConversationId = localStorage.getItem('conversationId');
+
+      if (storedConversationId && !conversationId && chatMessages.length === 0) {
+        setConversationId(storedConversationId);
+        console.log('Restored conversation ID from localStorage:', storedConversationId);
+
+        try {
+          // Fetch conversation with messages from database
+          const response = await fetch(`http://localhost:8000/api/conversations/${storedConversationId}`);
+
+          if (response.ok) {
+            const data = await response.json();
+            console.log('Loaded conversation from database:', data);
+
+            // Restore messages to chat
+            if (data.messages && data.messages.length > 0) {
+              data.messages.forEach(msg => {
+                addChatMessage(msg.role, msg.content);
+              });
+              console.log(`Restored ${data.messages.length} messages from database`);
+            }
+          } else {
+            console.warn('Conversation not found in database, starting fresh');
+            localStorage.removeItem('conversationId');
+          }
+        } catch (error) {
+          console.error('Failed to load conversation history:', error);
+          // Don't block the user if loading fails
+        }
+      }
+    };
+
+    loadConversationHistory();
+  }, []);
+
   // Clear chat when workspace changes
   useEffect(() => {
     if (selectedWorkspace && prevWorkspaceRef.current && prevWorkspaceRef.current.id !== selectedWorkspace.id) {
       clearChat();
+      // Clear conversation ID when switching workspaces
+      setConversationId(null);
+      localStorage.removeItem('conversationId');
     }
     prevWorkspaceRef.current = selectedWorkspace;
-  }, [selectedWorkspace, clearChat]);
+  }, [selectedWorkspace, clearChat, setConversationId]);
 
   const handleSendMessage = async (messageToSend = null) => {
     const messageContent = messageToSend || inputMessage.trim();
@@ -65,9 +123,11 @@ const AIChat = () => {
       // Create clean, serializable data structure
       const requestData = {
         workspace_id: selectedWorkspace?.id,
+        lakehouse_name: selectedLakehouse?.name || null,
+        warehouse_name: selectedWarehouse?.name || null,
         messages: [
-          ...chatMessages.map(m => ({ 
-            role: String(m.role), 
+          ...chatMessages.map(m => ({
+            role: String(m.role),
             content: String(m.content)
           })),
           { role: 'user', content: String(messageContent) }
@@ -78,12 +138,35 @@ const AIChat = () => {
             name: selectedWorkspace?.name || '',
             displayName: selectedWorkspace?.displayName || ''
           },
+          lakehouse: {
+            id: selectedLakehouse?.id || null,
+            name: selectedLakehouse?.name || null
+          },
+          warehouse: {
+            id: selectedWarehouse?.id || null,
+            name: selectedWarehouse?.name || null
+          },
           user: typeof user === 'string' ? user : (user?.email || '')
         }
       };
 
       // Call Claude API
       const response = await pipelineApi.chat(requestData);
+
+      // Save conversation_id from response
+      if (response.data.conversation_id) {
+        setConversationId(response.data.conversation_id);
+        console.log('Conversation ID:', response.data.conversation_id);
+
+        // Store in localStorage for persistence across page refreshes
+        localStorage.setItem('conversationId', response.data.conversation_id);
+      }
+
+      // Save job_id if present
+      if (response.data.job_id) {
+        setCurrentJobId(response.data.job_id);
+        console.log('Job ID:', response.data.job_id);
+      }
 
       // Ensure content is a string
       const content = typeof response.data.content === 'string'
@@ -111,6 +194,13 @@ const AIChat = () => {
       addChatMessage('assistant', '❌ Sorry, I encountered an error. Please try again.');
     } finally {
       setIsLoading(false);
+
+      // Auto-focus input field after response
+      setTimeout(() => {
+        if (inputRef.current) {
+          inputRef.current.focus();
+        }
+      }, 100);
     }
   };
 
@@ -472,15 +562,15 @@ const AIChat = () => {
                           }
                         }}
                       >
-                        <ReactMarkdown 
+                        <ReactMarkdown
                           components={{
                             p: ({children}) => (
-                              <Typography 
-                                variant="body1" 
-                                sx={{ 
-                                  mb: 0.5, 
-                                  fontSize: '0.875rem', 
-                                  lineHeight: 1.5,
+                              <Typography
+                                variant="body1"
+                                sx={{
+                                  mb: 1.2,
+                                  fontSize: '0.875rem',
+                                  lineHeight: 1.6,
                                   '&:last-child': { mb: 0 },
                                   color: 'inherit',
                                   fontWeight: 400,
@@ -490,10 +580,41 @@ const AIChat = () => {
                                 {children}
                               </Typography>
                             ),
-                            strong: ({children}) => (
-                              <Typography 
-                                component="strong" 
-                                sx={{ 
+                            h1: ({children}) => (
+                              <Typography
+                                variant="h6"
+                                sx={{
+                                  mt: 2,
+                                  mb: 1.5,
+                                  fontSize: '1.1rem',
+                                  fontWeight: 700,
+                                  color: 'inherit'
+                                }}
+                              >
+                                {children}
+                              </Typography>
+                            ),
+                            h2: ({children}) => (
+                              <Typography
+                                variant="h6"
+                                sx={{
+                                  mt: 2,
+                                  mb: 1.2,
+                                  fontSize: '1rem',
+                                  fontWeight: 700,
+                                  color: 'inherit'
+                                }}
+                              >
+                                {children}
+                              </Typography>
+                            ),
+                            h3: ({children}) => (
+                              <Typography
+                                variant="subtitle1"
+                                sx={{
+                                  mt: 1.5,
+                                  mb: 1,
+                                  fontSize: '0.95rem',
                                   fontWeight: 600,
                                   color: 'inherit'
                                 }}
@@ -501,16 +622,73 @@ const AIChat = () => {
                                 {children}
                               </Typography>
                             ),
+                            strong: ({children}) => (
+                              <Typography
+                                component="strong"
+                                sx={{
+                                  fontWeight: 700,
+                                  color: 'inherit'
+                                }}
+                              >
+                                {children}
+                              </Typography>
+                            ),
+                            ul: ({children}) => (
+                              <Box
+                                component="ul"
+                                sx={{
+                                  pl: 3,
+                                  my: 1,
+                                  '& ul': {
+                                    pl: 2,
+                                    mt: 0.5,
+                                    mb: 0.5
+                                  }
+                                }}
+                              >
+                                {children}
+                              </Box>
+                            ),
+                            ol: ({children}) => (
+                              <Box
+                                component="ol"
+                                sx={{
+                                  pl: 3,
+                                  my: 1,
+                                  '& ol': {
+                                    pl: 2,
+                                    mt: 0.5,
+                                    mb: 0.5
+                                  }
+                                }}
+                              >
+                                {children}
+                              </Box>
+                            ),
+                            li: ({children}) => (
+                              <Typography
+                                component="li"
+                                sx={{
+                                  fontSize: '0.875rem',
+                                  lineHeight: 1.6,
+                                  mb: 0.5,
+                                  color: 'inherit',
+                                  pl: 0.5
+                                }}
+                              >
+                                {children}
+                              </Typography>
+                            ),
                             code: ({children}) => (
-                              <Box 
-                                component="code" 
-                                sx={{ 
-                                  bgcolor: message.role === 'user' 
-                                    ? 'rgba(255,255,255,0.25)' 
-                                    : 'rgba(102, 126, 234, 0.08)', 
-                                  px: 0.8, 
+                              <Box
+                                component="code"
+                                sx={{
+                                  bgcolor: message.role === 'user'
+                                    ? 'rgba(255,255,255,0.25)'
+                                    : 'rgba(102, 126, 234, 0.08)',
+                                  px: 0.8,
                                   py: 0.3,
-                                  borderRadius: 0.8, 
+                                  borderRadius: 0.8,
                                   fontSize: '0.8em',
                                   fontFamily: 'Monaco, Consolas, "Courier New", monospace',
                                   color: 'inherit',
@@ -519,19 +697,6 @@ const AIChat = () => {
                               >
                                 {children}
                               </Box>
-                            ),
-                            li: ({children}) => (
-                              <Typography 
-                                component="li" 
-                                sx={{ 
-                                  fontSize: '0.875rem',
-                                  lineHeight: 1.5,
-                                  mb: 0.3,
-                                  color: 'inherit'
-                                }}
-                              >
-                                {children}
-                              </Typography>
                             )
                           }}
                         >
@@ -668,6 +833,8 @@ const AIChat = () => {
             placeholder="Ask about data sources, transformations, or pipeline architecture..."
             disabled={isLoading}
             size="small"
+            inputRef={inputRef}
+            autoFocus
             InputProps={{
               endAdornment: (
                 <InputAdornment position="end">

@@ -905,7 +905,7 @@ async def update_item_definition(token: str, workspace_id: str, item_id: str, pa
     async with httpx.AsyncClient(timeout=60.0) as client:
         response = await client.post(url, headers=headers, data=json.dumps(update_payload))
         if response.status_code not in [200, 202]:
-            print(f"   ❌ Update failed with status {response.status_code}")
+            print(f"   [FAILED] Update failed with status {response.status_code}")
             print(f"   Response: {response.text}")
         response.raise_for_status()
 
@@ -1032,11 +1032,11 @@ async def create_or_get_warehouse_connection(
         create_response = await client.post(list_url, headers=headers, data=json.dumps(payload))
 
         if create_response.status_code not in [200, 201]:
-            print(f"   ❌ Connection creation failed: {create_response.text}")
+            print(f"   [FAILED] Connection creation failed: {create_response.text}")
             create_response.raise_for_status()
 
         connection = create_response.json()
-        print(f"   ✓ Created connection: {connection.get('id')}")
+        print(f"   [OK] Created connection: {connection.get('id')}")
         return connection
 
 
@@ -1289,7 +1289,7 @@ async def main():
 
     except Exception as e:
         print("\n" + "="*80)
-        print("  ❌ DEPLOYMENT FAILED")
+        print("  [FAILED] DEPLOYMENT FAILED")
         print("="*80)
         import traceback
         traceback.print_exc()

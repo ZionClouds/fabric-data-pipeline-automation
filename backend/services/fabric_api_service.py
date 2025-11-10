@@ -113,6 +113,43 @@ class FabricAPIService:
             logger.error(f"Error fetching lakehouses from workspace: {str(e)}")
             return []
 
+    async def get_workspace_warehouses(self, workspace_id: str) -> List[Dict[str, Any]]:
+        """
+        Get all warehouses in a workspace
+
+        Args:
+            workspace_id: Fabric workspace ID
+
+        Returns:
+            List of warehouse dictionaries with id, displayName, type
+        """
+        try:
+            token = await self.get_access_token()
+
+            headers = {
+                "Authorization": f"Bearer {token}",
+                "Content-Type": "application/json"
+            }
+
+            # Get all items in workspace filtered by Warehouse type
+            list_url = f"{self.base_url}/workspaces/{workspace_id}/items?type=Warehouse"
+
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                response = await client.get(list_url, headers=headers)
+
+                if response.status_code == 200:
+                    data = response.json()
+                    warehouses = data.get("value", [])
+                    logger.info(f"Found {len(warehouses)} warehouse(s) in workspace {workspace_id}")
+                    return warehouses
+                else:
+                    logger.error(f"Error fetching warehouses: {response.status_code} - {response.text}")
+                    return []
+
+        except Exception as e:
+            logger.error(f"Error fetching warehouses from workspace: {str(e)}")
+            return []
+
     async def get_lakehouse_shortcuts(self, workspace_id: str, lakehouse_id: str) -> Dict[str, Any]:
         """
         Get all shortcuts in a lakehouse

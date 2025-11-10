@@ -35,13 +35,13 @@ async def main():
             break
 
     if not target_workspace:
-        print("   ❌ harshith-dev workspace not found")
+        print("   [FAILED] harshith-dev workspace not found")
         return
 
     workspace_id = target_workspace.get('id')
     workspace_name = target_workspace.get('displayName')
-    print(f"   ✓ Found workspace: {workspace_name}")
-    print(f"   ✓ Workspace ID: {workspace_id}")
+    print(f"   [OK] Found workspace: {workspace_name}")
+    print(f"   [OK] Workspace ID: {workspace_id}")
 
     # List notebooks in workspace
     print("\n3. Listing notebooks in workspace...")
@@ -60,7 +60,7 @@ async def main():
             notebooks_data = response.json()
             notebooks = notebooks_data.get("value", [])
 
-            print(f"   ✓ Found {len(notebooks)} notebook(s) in workspace\n")
+            print(f"   [OK] Found {len(notebooks)} notebook(s) in workspace\n")
 
             if notebooks:
                 print("   Notebooks:")
@@ -84,23 +84,23 @@ async def main():
                         break
 
                 if our_notebook:
-                    print("\n   ✅ SUCCESS: Notebook 'Create_FileIngestionStatus_Table' EXISTS!")
-                    print(f"   ✓ Notebook ID: {our_notebook.get('id')}")
-                    print(f"   ✓ Display Name: {our_notebook.get('displayName')}")
+                    print("\n   [SUCCESS] SUCCESS: Notebook 'Create_FileIngestionStatus_Table' EXISTS!")
+                    print(f"   [OK] Notebook ID: {our_notebook.get('id')}")
+                    print(f"   [OK] Display Name: {our_notebook.get('displayName')}")
                     print(f"\n   You can now:")
                     print(f"   1. Open it in Fabric UI")
                     print(f"   2. Run it to create the table")
                 else:
-                    print("\n   ❌ FAILED: Notebook 'Create_FileIngestionStatus_Table' NOT FOUND")
+                    print("\n   [FAILED] FAILED: Notebook 'Create_FileIngestionStatus_Table' NOT FOUND")
                     print("\n   This is the known issue where notebooks return 202 but don't actually get created.")
                     print("\n   Workaround: Create the notebook manually in Fabric UI")
             else:
-                print("   ❌ No notebooks found in workspace")
+                print("   [FAILED] No notebooks found in workspace")
                 print("\n   This confirms the notebook was NOT created.")
                 print("   The API returned 202 (Accepted) but the notebook never appeared.")
 
         else:
-            print(f"   ❌ Failed to list notebooks: {response.status_code}")
+            print(f"   [FAILED] Failed to list notebooks: {response.status_code}")
             print(f"   Response: {response.text}")
 
     print("\n" + "="*80)

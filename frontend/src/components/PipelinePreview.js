@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { usePipeline } from '../contexts/PipelineContext';
 import { useAuth } from '../contexts/AuthContext';
 import { pipelineApi } from '../services/api';
@@ -33,11 +33,13 @@ import {
 } from '@mui/icons-material';
 
 const PipelinePreview = () => {
-  const { selectedWorkspace, chatMessages, pipelineConfig } = usePipeline();
+  const { selectedWorkspace, chatMessages, pipelineConfig, selectedJobForPreview, setSelectedJobForPreview, triggerPipelineListRefresh } = usePipeline();
   const { user } = useAuth();
   const [isGenerating, setIsGenerating] = useState(false);
   const [isDeploying, setIsDeploying] = useState(false);
+  const [isLoadingJob, setIsLoadingJob] = useState(false);
   const [generatedPipeline, setGeneratedPipeline] = useState(null);
+  const [currentJobId, setCurrentJobId] = useState(null);
   const [selectedNotebook, setSelectedNotebook] = useState(null);
   const [error, setError] = useState(null);
   const [deploySuccess, setDeploySuccess] = useState(null);
@@ -52,6 +54,53 @@ const PipelinePreview = () => {
       [section]: !prev[section]
     }));
   };
+
+  // Load job data when selectedJobForPreview is set
+  useEffect(() => {
+    const loadJobData = async () => {
+      if (!selectedJobForPreview) return;
+
+      try {
+        setIsLoadingJob(true);
+        setError(null);
+        setDeploySuccess(null);
+
+        // Fetch job details from API
+        const response = await fetch(`http://localhost:8000/api/jobs/${selectedJobForPreview}`);
+
+        if (!response.ok) {
+          throw new Error(`Failed to fetch job details: ${response.statusText}`);
+        }
+
+        const jobData = await response.json();
+
+        // Store the job_id for deployment
+        setCurrentJobId(jobData.job_id);
+
+        // Set the generated pipeline from job data
+        if (jobData.pipeline_definition) {
+          setGeneratedPipeline({
+            pipeline_id: jobData.pipeline_id,
+            pipeline_name: jobData.pipeline_name,
+            activities: jobData.pipeline_definition.activities || [],
+            notebooks: jobData.pipeline_definition.notebooks || [],
+            reasoning: jobData.pipeline_definition.reasoning || null
+          });
+        }
+
+        // Clear the selected job after loading (so it doesn't reload on re-render)
+        setSelectedJobForPreview(null);
+      } catch (err) {
+        console.error('Error loading job data:', err);
+        setError('Failed to load pipeline details: ' + err.message);
+        setSelectedJobForPreview(null);
+      } finally {
+        setIsLoadingJob(false);
+      }
+    };
+
+    loadJobData();
+  }, [selectedJobForPreview, setSelectedJobForPreview]);
 
   const handleGeneratePipeline = async () => {
     try {
@@ -99,23 +148,66 @@ const PipelinePreview = () => {
   const handleDeployPipeline = async () => {
     if (!generatedPipeline) return;
 
+    // All pipelines must have a job_id from database
+    if (!currentJobId) {
+      setError('Cannot deploy: Pipeline not found in database. Please regenerate the pipeline.');
+      return;
+    }
+
     try {
       setIsDeploying(true);
       setError(null);
       setDeploySuccess(null);
 
-      const response = await pipelineApi.deployPipeline(
-        generatedPipeline.pipeline_id,
-        selectedWorkspace.id
-      );
+      // Use job-based deployment endpoint (CONSOLIDATED ENDPOINT)
+      const res = await fetch(`http://localhost:8000/api/jobs/${currentJobId}/deploy`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      });
 
-      setDeploySuccess(`Pipeline deployed successfully! Fabric Pipeline ID: ${response.data.fabric_pipeline_id}`);
+      if (!res.ok) {
+        const errorData = await res.json();
+        throw new Error(errorData.detail || 'Deployment failed');
+      }
+
+      const response = await res.json();
+
+      setDeploySuccess(`Pipeline deployed successfully! Fabric Pipeline ID: ${response.fabric_pipeline_id}`);
+
+      // Trigger refresh of pipeline list to show updated deployment status
+      if (triggerPipelineListRefresh) {
+        triggerPipelineListRefresh();
+      }
     } catch (err) {
       setError('Failed to deploy pipeline: ' + err.message);
     } finally {
       setIsDeploying(false);
     }
   };
+
+  if (isLoadingJob) {
+    return (
+      <Box
+        sx={{
+          height: '100%',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          bgcolor: '#fafafa',
+          p: 3
+        }}
+      >
+        <Box sx={{ textAlign: 'center' }}>
+          <CircularProgress size={48} sx={{ mb: 2 }} />
+          <Typography variant="h6" color="text.primary">
+            Loading pipeline details...
+          </Typography>
+        </Box>
+      </Box>
+    );
+  }
 
   if (!selectedWorkspace) {
     return (

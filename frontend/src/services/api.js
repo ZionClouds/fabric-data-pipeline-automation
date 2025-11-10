@@ -2,7 +2,7 @@ import axios from 'axios';
 
 // Runtime env config from window._env_ (injected by Docker at startup)
 // Fallback to process.env for local development, then hardcoded defaults
-const API_BASE_URL = window._env_?.REACT_APP_API_URL || process.env.REACT_APP_API_URL || 'http://localhost:8080';
+const API_BASE_URL = window._env_?.REACT_APP_API_URL || process.env.REACT_APP_API_URL || 'http://localhost:8000';
 const WORKSPACE_API_URL = window._env_?.REACT_APP_WORKSPACE_API_URL || process.env.REACT_APP_WORKSPACE_API_URL || 'https://fabric-pipeline-backend.delightfulplant-1c861d44.eastus.azurecontainerapps.io';
 
 // Create axios instance for pipeline builder backend
@@ -91,8 +91,8 @@ export const pipelineApi = {
   deletePipeline: (pipelineId) => api.delete(`/api/pipelines/${pipelineId}`),
   listPipelines: (workspaceId) => api.get(`/api/pipelines?workspace_id=${workspaceId}`),
 
-  // Pipeline Deployment
-  deployPipeline: (pipelineId, workspaceId) => api.post(`/api/pipelines/${pipelineId}/deploy`, { workspace_id: workspaceId }),
+  // Pipeline Deployment (CONSOLIDATED - use /api/jobs/{job_id}/deploy instead)
+  // Old deployPipeline removed - all deployments now go through job-based endpoint
   getDeploymentStatus: (pipelineId) => api.get(`/api/pipelines/${pipelineId}/status`),
   runPipeline: (pipelineId) => api.post(`/api/pipelines/${pipelineId}/run`),
   getPipelineExecutions: (pipelineId) => api.get(`/api/pipelines/${pipelineId}/executions`),

@@ -66,6 +66,8 @@ class ChatRequest(BaseModel):
     pipeline_id: Optional[int] = None
     messages: List[ChatMessage]
     context: Optional[Dict[str, Any]] = None
+    lakehouse_name: Optional[str] = None  # Selected lakehouse from dropdown
+    warehouse_name: Optional[str] = None  # Selected warehouse from dropdown
 
 class TransformationRequest(BaseModel):
     transformation_type: TransformationType
@@ -86,6 +88,8 @@ class PipelineGenerateRequest(BaseModel):
     use_medallion: bool = True
     schedule: str = "manual"
     created_by: str
+    lakehouse_name: Optional[str] = None  # Selected lakehouse from dropdown
+    warehouse_name: Optional[str] = None  # Selected warehouse from dropdown
 
 class PipelineDeployRequest(BaseModel):
     pipeline_id: int
@@ -111,6 +115,8 @@ class ChatResponse(BaseModel):
     shortcut_info: Optional[Dict[str, Any]] = None  # Info about created shortcuts
     needs_confirmation: Optional[bool] = None  # Flag if waiting for user confirmation
     confirmation_action: Optional[str] = None  # What action needs confirmation (e.g., "create_shortcut")
+    conversation_id: Optional[str] = None  # Database conversation ID
+    job_id: Optional[str] = None  # Database job ID if applicable
 
 class NotebookCode(BaseModel):
     notebook_name: str
