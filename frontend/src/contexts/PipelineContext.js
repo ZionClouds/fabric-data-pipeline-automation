@@ -4,6 +4,8 @@ const PipelineContext = createContext();
 
 export const PipelineProvider = ({ children }) => {
   const [selectedWorkspace, setSelectedWorkspace] = useState(null);
+  const [selectedLakehouse, setSelectedLakehouse] = useState(null);
+  const [selectedWarehouse, setSelectedWarehouse] = useState(null);
   const [currentPipeline, setCurrentPipeline] = useState(null);
   const [chatMessages, setChatMessages] = useState([]);
   const [conversationId, setConversationId] = useState(null);
@@ -85,6 +87,10 @@ export const PipelineProvider = ({ children }) => {
       value={{
         selectedWorkspace,
         setSelectedWorkspace,
+        selectedLakehouse,
+        setSelectedLakehouse,
+        selectedWarehouse,
+        setSelectedWarehouse,
         currentPipeline,
         setCurrentPipeline,
         chatMessages,

@@ -27,15 +27,20 @@ import {
 const AIChat = () => {
   const {
     selectedWorkspace,
+    selectedLakehouse,
+    selectedWarehouse,
+
     chatMessages,
     addChatMessage,
     setCurrentPipeline,
     clearChat,
+
     updatePipelineConfig,
     conversationId,
     setConversationId,
     currentJobId,
     setCurrentJobId
+
   } = usePipeline();
   const { user } = useAuth();
   const [inputMessage, setInputMessage] = useState('');
@@ -117,9 +122,11 @@ const AIChat = () => {
       // Create clean, serializable data structure
       const requestData = {
         workspace_id: selectedWorkspace?.id,
+        lakehouse_name: selectedLakehouse?.name || null,
+        warehouse_name: selectedWarehouse?.name || null,
         messages: [
-          ...chatMessages.map(m => ({ 
-            role: String(m.role), 
+          ...chatMessages.map(m => ({
+            role: String(m.role),
             content: String(m.content)
           })),
           { role: 'user', content: String(messageContent) }
@@ -129,6 +136,14 @@ const AIChat = () => {
             id: selectedWorkspace?.id,
             name: selectedWorkspace?.name || '',
             displayName: selectedWorkspace?.displayName || ''
+          },
+          lakehouse: {
+            id: selectedLakehouse?.id || null,
+            name: selectedLakehouse?.name || null
+          },
+          warehouse: {
+            id: selectedWarehouse?.id || null,
+            name: selectedWarehouse?.name || null
           },
           user: typeof user === 'string' ? user : (user?.email || '')
         }
@@ -539,15 +554,15 @@ const AIChat = () => {
                           }
                         }}
                       >
-                        <ReactMarkdown 
+                        <ReactMarkdown
                           components={{
                             p: ({children}) => (
-                              <Typography 
-                                variant="body1" 
-                                sx={{ 
-                                  mb: 0.5, 
-                                  fontSize: '0.875rem', 
-                                  lineHeight: 1.5,
+                              <Typography
+                                variant="body1"
+                                sx={{
+                                  mb: 1.2,
+                                  fontSize: '0.875rem',
+                                  lineHeight: 1.6,
                                   '&:last-child': { mb: 0 },
                                   color: 'inherit',
                                   fontWeight: 400,
@@ -557,10 +572,41 @@ const AIChat = () => {
                                 {children}
                               </Typography>
                             ),
-                            strong: ({children}) => (
-                              <Typography 
-                                component="strong" 
-                                sx={{ 
+                            h1: ({children}) => (
+                              <Typography
+                                variant="h6"
+                                sx={{
+                                  mt: 2,
+                                  mb: 1.5,
+                                  fontSize: '1.1rem',
+                                  fontWeight: 700,
+                                  color: 'inherit'
+                                }}
+                              >
+                                {children}
+                              </Typography>
+                            ),
+                            h2: ({children}) => (
+                              <Typography
+                                variant="h6"
+                                sx={{
+                                  mt: 2,
+                                  mb: 1.2,
+                                  fontSize: '1rem',
+                                  fontWeight: 700,
+                                  color: 'inherit'
+                                }}
+                              >
+                                {children}
+                              </Typography>
+                            ),
+                            h3: ({children}) => (
+                              <Typography
+                                variant="subtitle1"
+                                sx={{
+                                  mt: 1.5,
+                                  mb: 1,
+                                  fontSize: '0.95rem',
                                   fontWeight: 600,
                                   color: 'inherit'
                                 }}
@@ -568,16 +614,73 @@ const AIChat = () => {
                                 {children}
                               </Typography>
                             ),
+                            strong: ({children}) => (
+                              <Typography
+                                component="strong"
+                                sx={{
+                                  fontWeight: 700,
+                                  color: 'inherit'
+                                }}
+                              >
+                                {children}
+                              </Typography>
+                            ),
+                            ul: ({children}) => (
+                              <Box
+                                component="ul"
+                                sx={{
+                                  pl: 3,
+                                  my: 1,
+                                  '& ul': {
+                                    pl: 2,
+                                    mt: 0.5,
+                                    mb: 0.5
+                                  }
+                                }}
+                              >
+                                {children}
+                              </Box>
+                            ),
+                            ol: ({children}) => (
+                              <Box
+                                component="ol"
+                                sx={{
+                                  pl: 3,
+                                  my: 1,
+                                  '& ol': {
+                                    pl: 2,
+                                    mt: 0.5,
+                                    mb: 0.5
+                                  }
+                                }}
+                              >
+                                {children}
+                              </Box>
+                            ),
+                            li: ({children}) => (
+                              <Typography
+                                component="li"
+                                sx={{
+                                  fontSize: '0.875rem',
+                                  lineHeight: 1.6,
+                                  mb: 0.5,
+                                  color: 'inherit',
+                                  pl: 0.5
+                                }}
+                              >
+                                {children}
+                              </Typography>
+                            ),
                             code: ({children}) => (
-                              <Box 
-                                component="code" 
-                                sx={{ 
-                                  bgcolor: message.role === 'user' 
-                                    ? 'rgba(255,255,255,0.25)' 
-                                    : 'rgba(102, 126, 234, 0.08)', 
-                                  px: 0.8, 
+                              <Box
+                                component="code"
+                                sx={{
+                                  bgcolor: message.role === 'user'
+                                    ? 'rgba(255,255,255,0.25)'
+                                    : 'rgba(102, 126, 234, 0.08)',
+                                  px: 0.8,
                                   py: 0.3,
-                                  borderRadius: 0.8, 
+                                  borderRadius: 0.8,
                                   fontSize: '0.8em',
                                   fontFamily: 'Monaco, Consolas, "Courier New", monospace',
                                   color: 'inherit',
@@ -586,19 +689,6 @@ const AIChat = () => {
                               >
                                 {children}
                               </Box>
-                            ),
-                            li: ({children}) => (
-                              <Typography 
-                                component="li" 
-                                sx={{ 
-                                  fontSize: '0.875rem',
-                                  lineHeight: 1.5,
-                                  mb: 0.3,
-                                  color: 'inherit'
-                                }}
-                              >
-                                {children}
-                              </Typography>
                             )
                           }}
                         >
