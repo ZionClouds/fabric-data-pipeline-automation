@@ -22,6 +22,9 @@ import {
 } from '@mui/icons-material';
 import { usePipeline } from '../contexts/PipelineContext';
 
+// API URL from env config (supports Docker runtime injection)
+const API_BASE_URL = window._env_?.REACT_APP_API_URL || process.env.REACT_APP_API_URL || 'http://localhost:8000';
+
 const PipelineList = () => {
   const { selectedWorkspace, setSelectedJobForPreview, refreshPipelineList } = usePipeline();
   const [pipelines, setPipelines] = useState([]);
@@ -34,7 +37,7 @@ const PipelineList = () => {
       setError(null);
 
       // Fetch jobs from database
-      const response = await fetch('http://localhost:8000/api/jobs?job_type=pipeline_generation&limit=50');
+      const response = await fetch(`${API_BASE_URL}/api/jobs?job_type=pipeline_generation&limit=50`);
 
       if (!response.ok) {
         throw new Error(`Failed to fetch pipelines: ${response.statusText}`);
@@ -168,7 +171,7 @@ const PipelineList = () => {
       setLoading(true);
       setError(null);
 
-      const response = await fetch(`http://localhost:8000/api/pipelines/${jobId}`, {
+      const response = await fetch(`${API_BASE_URL}/api/pipelines/${jobId}`, {
         method: 'DELETE',
         headers: {
           'Content-Type': 'application/json'
