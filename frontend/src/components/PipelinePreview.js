@@ -33,7 +33,7 @@ import {
 } from '@mui/icons-material';
 
 const PipelinePreview = () => {
-  const { selectedWorkspace, chatMessages } = usePipeline();
+  const { selectedWorkspace, chatMessages, pipelineConfig } = usePipeline();
   const { user } = useAuth();
   const [isGenerating, setIsGenerating] = useState(false);
   const [isDeploying, setIsDeploying] = useState(false);
@@ -62,9 +62,13 @@ const PipelinePreview = () => {
       // Extract context from chat messages
       const chatContext = chatMessages.map(msg => `${msg.role}: ${msg.content}`).join('\n\n');
 
+      // Use pipeline name from chat context, or generate one if not available
+      const pipelineName = pipelineConfig.pipeline_name || ('Pipeline_' + Date.now());
+      console.log('Using pipeline name for generation:', pipelineName);
+
       const response = await pipelineApi.generatePipeline({
         workspace_id: selectedWorkspace.id,
-        pipeline_name: 'Pipeline_' + Date.now(),
+        pipeline_name: pipelineName,
         source_type: 'blob_storage',  // Default to blob storage for now
         source_config: {
           chat_context: chatContext  // Send entire conversation
@@ -519,9 +523,14 @@ const PipelinePreview = () => {
                                 <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 0.5, fontSize: '0.85rem' }}>
                                   {activity.name}
                                 </Typography>
-                                <Typography variant="body2" color="text.secondary" sx={{ mb: 1, fontSize: '0.8rem' }}>
+                                <Typography variant="body2" color="text.secondary" sx={{ mb: 0.5, fontSize: '0.8rem' }}>
                                   <strong>Type:</strong> {activity.type}
                                 </Typography>
+                                {activity.config?.description && (
+                                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1, fontSize: '0.75rem', fontStyle: 'italic' }}>
+                                    {activity.config.description}
+                                  </Typography>
+                                )}
                                 {activity.depends_on && activity.depends_on.length > 0 && (
                                   <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
                                     <Typography variant="caption" color="text.secondary" sx={{ mr: 0.5 }}>

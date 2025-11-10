@@ -394,27 +394,27 @@ async def chat_with_ai(request: ChatRequest, user: dict = Depends(validate_token
 
                     # Check if shortcuts already existed or were just created
                     if shortcut_result.get("already_exists"):
-                        success_message = f"""✅ **Shortcuts Already Set Up!**
+                        success_message = f"""Shortcuts Already Set Up!
 
 Good news! Your lakehouse already has shortcuts configured:
 
-**Storage Account:** {shortcut_result['storage_account']}
-**Lakehouse:** {shortcut_result['lakehouse_name']}
+Storage Account: {shortcut_result['storage_account']}
+Lakehouse: {shortcut_result['lakehouse_name']}
 
-**Available Shortcuts:**
+Available Shortcuts:
 {shortcuts_info}
 
 Your data is ready to use! Would you like me to help you create a pipeline to process this data?"""
                     else:
-                        success_message = f"""✅ **Shortcuts Created Successfully!**
+                        success_message = f"""Shortcuts Created Successfully!
 
 I've created OneLake shortcuts for your Azure Blob Storage:
 
-**Storage Account:** {shortcut_result['storage_account']}
-**Lakehouse:** {shortcut_result['lakehouse_name']}
-**Connection:** {shortcut_result.get('connection_name', 'N/A')}
+Storage Account: {shortcut_result['storage_account']}
+Lakehouse: {shortcut_result['lakehouse_name']}
+Connection: {shortcut_result.get('connection_name', 'N/A')}
 
-**Shortcuts Created:**
+Shortcuts Created:
 {shortcuts_info}
 
 You can now access your data directly in the lakehouse! Would you like me to help you create a pipeline to process this data?"""
@@ -492,11 +492,7 @@ Would you like me to provide manual instructions instead?"""
                     "config": deployment_config
                 })
 
-                response = f"""✅ **Lakehouse:** {lakehouse_name}
-✅ **Warehouse:** jay-dev-warehouse (default)
-
-**What's the source folder name?**
-(e.g., "bronze", "incoming", "raw-data")
+                response = f"""What's the source folder name? (e.g., "bronze", "incoming", "raw-data")
 
 This is where your CSV files are located in the blob storage."""
 
@@ -511,68 +507,36 @@ This is where your CSV files are located in the blob storage."""
                 )
 
             elif step == "source_folder":
-                # Store source folder and ask for output folder
+                # Store source folder and ask for table name
                 deployment_config["source_folder"] = user_message.strip()
                 conv_context.set_pending_confirmation("collect_deployment_params", {
                     "workspace_id": request.workspace_id,
-                    "step": "output_folder",
+                    "step": "table_name",
                     "config": deployment_config
                 })
 
-                response = f"""✅ **Source folder:** Files/{user_message.strip()}
-
-**What's the output folder name?**
-(e.g., "silver", "processed", "clean-data")
-
-This is where the processed results will be stored."""
+                response = f"""What should be the table name in the lakehouse?"""
 
                 return ChatResponse(
                     role="assistant",
                     content=response,
-                    suggestions=["silver", "processed", "clean-data"],
+                    suggestions=None,
                     pipeline_preview=None,
                     shortcut_info=None,
                     needs_confirmation=False,
                     confirmation_action=None
                 )
 
-            elif step == "output_folder":
-                # Store output folder and ask for pipeline name
-                deployment_config["output_folder"] = user_message.strip()
-                conv_context.set_pending_confirmation("collect_deployment_params", {
-                    "workspace_id": request.workspace_id,
-                    "step": "pipeline_name",
-                    "config": deployment_config
-                })
-
-                response = f"""✅ **Output folder:** Files/{user_message.strip()}
-
-**What should I name this pipeline?**
-(e.g., "DataProcessingPipeline", "CSVLoader", "PIIDetectionPipeline")"""
-
-                return ChatResponse(
-                    role="assistant",
-                    content=response,
-                    suggestions=["DataProcessingPipeline", "CSVLoader", "PIIDetectionPipeline"],
-                    pipeline_preview=None,
-                    shortcut_info=None,
-                    needs_confirmation=False,
-                    confirmation_action=None
-                )
-
-            elif step == "pipeline_name":
-                # Store pipeline name and ask about PII/PHI detection
-                deployment_config["pipeline_name"] = user_message.strip()
+            elif step == "table_name":
+                # Store table name and ask about PII/PHI detection
+                deployment_config["table_name"] = user_message.strip()
                 conv_context.set_pending_confirmation("collect_deployment_params", {
                     "workspace_id": request.workspace_id,
                     "step": "pii_phi_detection",
                     "config": deployment_config
                 })
 
-                response = f"""✅ **Pipeline Name:** {user_message.strip()}
-
-**Do you need PII/PHI detection?**
-(This will scan your CSV files for sensitive personal and health information)"""
+                response = f"""Do you need PII/PHI detection? (This will scan your CSV files for sensitive personal and health information)"""
 
                 return ChatResponse(
                     role="assistant",
@@ -585,38 +549,57 @@ This is where the processed results will be stored."""
                 )
 
             elif step == "pii_phi_detection":
-                # Store PII/PHI detection preference and show summary
+                # Store PII/PHI detection preference and ask for pipeline name
                 pii_phi_needed = conv_context.is_user_confirming(user_message)
                 deployment_config["pii_phi_detection"] = pii_phi_needed
+                conv_context.set_pending_confirmation("collect_deployment_params", {
+                    "workspace_id": request.workspace_id,
+                    "step": "pipeline_name",
+                    "config": deployment_config
+                })
+
+                response = f"""What should I name this pipeline? (e.g., "DataProcessingPipeline", "CSVLoader", "PIIDetectionPipeline")"""
+
+                return ChatResponse(
+                    role="assistant",
+                    content=response,
+                    suggestions=["DataProcessingPipeline", "CSVLoader", "PIIDetectionPipeline"],
+                    pipeline_preview=None,
+                    shortcut_info=None,
+                    needs_confirmation=False,
+                    confirmation_action=None
+                )
+
+            elif step == "pipeline_name":
+                # Store pipeline name and show summary
+                deployment_config["pipeline_name"] = user_message.strip()
+                pii_phi_needed = deployment_config.get("pii_phi_detection", True)
 
                 # Build pipeline steps based on PII/PHI detection
                 if pii_phi_needed:
                     pipeline_steps = f"""1. Get all CSV files from Files/{deployment_config.get('source_folder')}
 2. Filter out already-processed files
 3. Run PII/PHI detection on each file
-4. Save results to Files/{deployment_config.get('output_folder')}"""
+4. Save results to lakehouse table: {deployment_config.get('table_name')}"""
                 else:
                     pipeline_steps = f"""1. Get all CSV files from Files/{deployment_config.get('source_folder')}
 2. Filter out already-processed files
-3. Save results to Files/{deployment_config.get('output_folder')}"""
+3. Save results to lakehouse table: {deployment_config.get('table_name')}"""
 
                 # Show configuration summary
-                summary_message = f"""✅ **Configuration Complete!**
+                summary_message = f"""Configuration Complete!
 
-**Summary:**
-- **Workspace:** jay-dev (default)
-- **Lakehouse:** {deployment_config.get('lakehouse_name')}
-- **Warehouse:** jay-dev-warehouse (default)
-- **Source:** Files/{deployment_config.get('source_folder')}
-- **Output:** Files/{deployment_config.get('output_folder')}
-- **Pipeline Name:** {deployment_config.get('pipeline_name')}
-- **PII/PHI Detection:** {"Enabled" if pii_phi_needed else "Disabled"}
+Summary:
+- Workspace: jay-dev (default)
+- Lakehouse: {deployment_config.get('lakehouse_name')}
+- Warehouse: jay-dev-warehouse (default)
+- Source Folder: Files/{deployment_config.get('source_folder')}
+- Target Table: {deployment_config.get('table_name')}
+- PII/PHI Detection: {"Enabled" if pii_phi_needed else "Disabled"}
+- Pipeline Name: {deployment_config.get('pipeline_name')}
 
 This pipeline will:
-{pipeline_steps}
-
-**Ready to deploy?**
-Reply with "yes" or "deploy" to create the pipeline."""
+{pipeline_steps}"""
 
                 # Clear pending state - we're done collecting values
                 conv_context.clear_pending_confirmation()
@@ -624,9 +607,9 @@ Reply with "yes" or "deploy" to create the pipeline."""
                 # Direct user to Pipeline Preview page
                 redirect_message = f"""{summary_message}
 
-**Next Step:**
-1. Go to the **Pipeline Preview** page
-2. Click the **"Generate Pipeline"** button to deploy
+Next Step:
+1. Go to the Pipeline Preview page
+2. Click the "Generate Pipeline" button to deploy
 
 The pipeline will be created in your workspace using these settings."""
 
@@ -657,17 +640,7 @@ The pipeline will be created in your workspace using these settings."""
                 "step": "lakehouse_name"
             })
 
-            deployment_message = """🔍 **I can help you deploy a Fabric pipeline to load data from blob storage to your lakehouse!**
-
-This will create a pipeline that:
-- Processes CSV files from blob storage
-- Detects PII/PHI in your data
-- Loads results into your lakehouse
-
-**What lakehouse should I use?**
-(Just provide the lakehouse name, e.g., "jay_dev_lakehouse")
-
-Note: The warehouse connection "jay-dev-warehouse" will be used automatically."""
+            deployment_message = """What is your lakehouse name? I can see the default lakehouse name is **jay_dev_lakehouse**."""
 
             return ChatResponse(
                 role="assistant",
@@ -854,6 +827,10 @@ async def generate_pipeline(request: PipelineGenerateRequest, user: dict = Depen
     try:
         logger.info(f"Generating pipeline: {request.pipeline_name} for user: {user['email']}")
 
+        # Use the pipeline name directly from the request (now passed from frontend chat context)
+        pipeline_name = request.pipeline_name
+        logger.info(f"Using pipeline name: {pipeline_name}")
+
         # JUST GENERATE PREVIEW - Don't deploy yet!
         logger.info("Generating pipeline preview with hardcoded values")
 
@@ -864,55 +841,84 @@ async def generate_pipeline(request: PipelineGenerateRequest, user: dict = Depen
         # Generate pipeline ID for storing in memory
         pipeline_id = int(time.time())
 
-        # Define full pipeline activities (what will be deployed)
+        # Define full pipeline activities (matching deploy_pipeline_api.py template)
         activities = [
             PipelineActivity(
-                name="Get_CSV_Files_List",
-                type="Lookup",
+                name="Get Metadata",
+                type="GetMetadata",
                 config={
-                    "description": "Get list of CSV files from lakehouse Files folder",
-                    "source": {"type": "LakehouseFiles", "path": "Files/bronze"},
-                    "query": "List all .csv files"
+                    "description": "Get metadata of files in the lakehouse source folder",
+                    "fieldList": ["childItems"],
+                    "source": {
+                        "type": "Lakehouse",
+                        "rootFolder": "Files",
+                        "folderPath": "claims"
+                    }
                 },
                 depends_on=None
             ),
             PipelineActivity(
                 name="GetProcessedFileNames",
-                type="Lookup",
+                type="Script",
                 config={
-                    "description": "Query warehouse to get already processed files",
-                    "source": {"type": "WarehouseQuery"},
-                    "query": "SELECT processed_file FROM silver_processing_log"
+                    "description": "Query warehouse to get list of already processed files",
+                    "scriptType": "Query",
+                    "query": "SELECT [FileName] FROM [dbo].[processedfiles] WHERE Status = 'Done'",
+                    "database": "jay-dev-warehouse",
+                    "connection": "Warehouse_jay_reddy"
                 },
-                depends_on=None
+                depends_on=["Get Metadata"]
+            ),
+            PipelineActivity(
+                name="SetEmptyFileArray",
+                type="SetVariable",
+                config={
+                    "description": "Initialize empty array for processed file names",
+                    "variableName": "ProcessedFileNames",
+                    "value": "[]"
+                },
+                depends_on=["GetProcessedFileNames"]
+            ),
+            PipelineActivity(
+                name="ForEach1",
+                type="ForEach",
+                config={
+                    "description": "Loop through warehouse results to build processed files list",
+                    "items": "@activity('GetProcessedFileNames').output.resultSets[0].rows",
+                    "activities": [
+                        {
+                            "name": "Set variable1",
+                            "type": "SetVariable",
+                            "variableName": "ProcessedFileNames",
+                            "value": "@item().FileName"
+                        }
+                    ]
+                },
+                depends_on=["SetEmptyFileArray"]
             ),
             PipelineActivity(
                 name="FilterNewFiles",
                 type="Filter",
                 config={
                     "description": "Filter out files that have already been processed",
-                    "items": "@activity('Get_CSV_Files_List').output.value",
-                    "condition": "@not(contains(activity('GetProcessedFileNames').output.value, item().name))"
+                    "items": "@activity('Get Metadata').output.childItems",
+                    "condition": "@not(contains(variables('ProcessedFileNames'), item().name))"
                 },
-                depends_on=["Get_CSV_Files_List", "GetProcessedFileNames"]
+                depends_on=["ForEach1"]
             ),
             PipelineActivity(
-                name="Process_CSV_Files",
+                name="forEach",
                 type="ForEach",
                 config={
-                    "description": "Process each new CSV file with PII/PHI detection",
+                    "description": "Process each unprocessed file with PII/PHI detection notebook",
                     "items": "@activity('FilterNewFiles').output.value",
-                    "isSequential": False,
-                    "batchCount": 20,
                     "activities": [
                         {
-                            "name": "Process_Single_CSV",
-                            "type": "Notebook",
-                            "notebook": "PHI_PII_detection",
+                            "name": "PHI_PII_detection",
+                            "type": "TridentNotebook",
+                            "notebookId": "PHI_PII_detection",
                             "parameters": {
-                                "input_file": "@item().name",
-                                "source_path": "Files/bronze",
-                                "target_path": "Files/silver"
+                                "fileName": "@item().name"
                             }
                         }
                     ]
@@ -931,7 +937,7 @@ async def generate_pipeline(request: PipelineGenerateRequest, user: dict = Depen
 
         # Store in memory for deployment later
         generated_pipelines[pipeline_id] = {
-            "pipeline_name": request.pipeline_name,
+            "pipeline_name": pipeline_name,
             "activities": activities,
             "notebooks": [notebook],
             "workspace_id": request.workspace_id,
@@ -949,11 +955,11 @@ async def generate_pipeline(request: PipelineGenerateRequest, user: dict = Depen
         # Return preview (NOT deployed yet!)
         return PipelineGenerateResponse(
             pipeline_id=pipeline_id,
-            pipeline_name=request.pipeline_name,
+            pipeline_name=pipeline_name,
             activities=activities,
             notebooks=[notebook],
             fabric_pipeline_json={},
-            reasoning=f"✅ Pipeline preview ready:\n- Workspace: jay-dev\n- Lakehouse: jay_dev_lakehouse\n- Source: Files/bronze\n- Output: Files/silver\n\nClick 'Deploy to Fabric Workspace' to create this pipeline."
+            reasoning=f"Pipeline preview ready:\n\nActivities:\n1. Get Metadata - Retrieves file list from lakehouse\n2. GetProcessedFileNames - Queries warehouse for already processed files\n3. SetEmptyFileArray - Initializes processed files variable\n4. ForEach1 - Builds list of processed file names\n5. FilterNewFiles - Filters out already processed files\n6. forEach - Processes each new file with PHI_PII_detection notebook\n\nConfiguration:\n- Workspace: jay-dev\n- Lakehouse: jay_dev_lakehouse\n- Warehouse: jay-dev-warehouse\n- Source: Files/claims\n- Output: Files/silver\n\nClick 'Deploy to Fabric Workspace' to create this pipeline."
         )
 
     except HTTPException:
@@ -1737,4 +1743,4 @@ async def generate_file_processing_pipeline(request: FileProcessingPipelineReque
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(app, host="0.0.0.0", port=8080)

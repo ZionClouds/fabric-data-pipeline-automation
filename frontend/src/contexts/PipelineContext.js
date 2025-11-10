@@ -11,11 +11,44 @@ export const PipelineProvider = ({ children }) => {
     tables: [],
     transformations: [],
     use_medallion: true,
-    schedule: 'manual'
+    schedule: 'manual',
+    pipeline_name: null
   });
 
   const addChatMessage = (role, content) => {
-    setChatMessages(prev => [...prev, { role, content, timestamp: new Date() }]);
+    // Debug log to see what's being passed
+    console.log('addChatMessage called with:', { role, contentType: typeof content, content });
+
+    // Ensure content is always a string
+    let stringContent;
+
+    if (typeof content === 'string') {
+      stringContent = content;
+    } else if (content === null || content === undefined) {
+      stringContent = '';
+      console.warn('addChatMessage received null/undefined content');
+    } else if (typeof content === 'object') {
+      // Handle objects - avoid circular references
+      console.warn('addChatMessage received object instead of string:', content);
+      try {
+        // If it's a plain object, try to stringify
+        if (content.constructor === Object || Array.isArray(content)) {
+          stringContent = JSON.stringify(content, null, 2);
+        } else {
+          // For other objects (DOM elements, React components, etc.), just convert to string
+          console.warn('Content is not a plain object, converting to string');
+          stringContent = '[Object]';
+        }
+      } catch (e) {
+        // If JSON.stringify fails (circular reference), just convert to string
+        console.error('Failed to stringify content:', e);
+        stringContent = '[Unable to display content]';
+      }
+    } else {
+      stringContent = String(content);
+    }
+
+    setChatMessages(prev => [...prev, { role, content: stringContent, timestamp: new Date() }]);
   };
 
   const clearChat = () => {
@@ -34,7 +67,8 @@ export const PipelineProvider = ({ children }) => {
       tables: [],
       transformations: [],
       use_medallion: true,
-      schedule: 'manual'
+      schedule: 'manual',
+      pipeline_name: null
     });
   };
 
