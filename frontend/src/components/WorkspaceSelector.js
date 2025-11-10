@@ -7,9 +7,10 @@ import {
   Select,
   MenuItem,
   CircularProgress,
-  Chip
+  Chip,
+  Alert
 } from '@mui/material';
-import { Business as BusinessIcon, CheckCircle as CheckIcon } from '@mui/icons-material';
+import { Business as BusinessIcon, CheckCircle as CheckIcon, Info as InfoIcon } from '@mui/icons-material';
 
 const WorkspaceSelector = ({ workspaces, isLoading }) => {
   const { selectedWorkspace, setSelectedWorkspace } = usePipeline();
@@ -154,6 +155,7 @@ const WorkspaceSelector = ({ workspaces, isLoading }) => {
         </Select>
       </FormControl>
 
+      {/* Show success chip when workspace is selected */}
       {selectedWorkspace && (
         <Chip
           icon={<CheckIcon sx={{ fontSize: '12px' }} />}
@@ -176,6 +178,46 @@ const WorkspaceSelector = ({ workspaces, isLoading }) => {
             },
           }}
         />
+      )}
+
+      {/* Show alert when no workspace is selected */}
+      {!selectedWorkspace && workspaces.length > 0 && (
+        <Alert
+          severity="info"
+          icon={<InfoIcon sx={{ fontSize: '14px' }} />}
+          sx={{
+            mt: 1,
+            py: 0.5,
+            px: 1,
+            bgcolor: 'rgba(255, 193, 7, 0.15)',
+            color: 'rgba(255, 255, 255, 0.95)',
+            border: '1px solid rgba(255, 193, 7, 0.4)',
+            borderRadius: 1,
+            fontSize: '11px',
+            alignItems: 'center',
+            '& .MuiAlert-icon': {
+              color: '#ffc107',
+              mr: 0.75,
+              py: 0,
+            },
+            '& .MuiAlert-message': {
+              py: 0,
+              fontSize: '11px',
+              fontWeight: 500,
+            },
+            animation: 'pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite',
+            '@keyframes pulse': {
+              '0%, 100%': {
+                opacity: 1,
+              },
+              '50%': {
+                opacity: 0.7,
+              },
+            },
+          }}
+        >
+          Select to start building
+        </Alert>
       )}
     </Box>
   );

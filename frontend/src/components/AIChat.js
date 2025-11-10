@@ -15,7 +15,8 @@ import {
   CardContent,
   CircularProgress,
   Fade,
-  InputAdornment
+  InputAdornment,
+  Alert
 } from '@mui/material';
 import {
   Send as SendIcon,
@@ -299,10 +300,10 @@ const AIChat = () => {
               >
                 Let's build something amazing
               </Typography>
-              <Typography 
-                variant="body2" 
-                color="text.secondary" 
-                sx={{ 
+              <Typography
+                variant="body2"
+                color="text.secondary"
+                sx={{
                   mb: 2.5,
                   fontSize: '0.9rem',
                   lineHeight: 1.5,
@@ -313,7 +314,30 @@ const AIChat = () => {
               >
                 Tell me about your data pipeline needs and I'll help you design the perfect solution.
               </Typography>
-              
+
+              {/* Workspace Selection Alert in Empty State */}
+              {!selectedWorkspace && (
+                <Alert
+                  severity="warning"
+                  icon={<AutoAwesomeIcon />}
+                  sx={{
+                    mb: 3,
+                    maxWidth: 520,
+                    mx: 'auto',
+                    borderRadius: 2,
+                    bgcolor: 'rgba(255, 152, 0, 0.08)',
+                    border: '1px solid rgba(255, 152, 0, 0.3)',
+                    '& .MuiAlert-icon': {
+                      color: '#ff9800'
+                    }
+                  }}
+                >
+                  <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                    Please select a workspace from the sidebar to continue
+                  </Typography>
+                </Alert>
+              )}
+
               <Typography 
                 variant="subtitle2" 
                 gutterBottom 
@@ -339,10 +363,13 @@ const AIChat = () => {
                   <Card
                     key={index}
                     onClick={() => {
-                      handleSendMessage(question);
+                      if (selectedWorkspace) {
+                        handleSendMessage(question);
+                      }
                     }}
                     sx={{
-                      cursor: 'pointer',
+                      cursor: selectedWorkspace ? 'pointer' : 'not-allowed',
+                      opacity: selectedWorkspace ? 1 : 0.5,
                       transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
                       borderRadius: 2,
                       border: '1.5px solid rgba(102, 126, 234, 0.12)',
@@ -811,9 +838,9 @@ const AIChat = () => {
       </Box>
 
       {/* Input Area */}
-      <Paper 
-        elevation={0} 
-        sx={{ 
+      <Paper
+        elevation={0}
+        sx={{
           px: 2.5,
           py: 1.5,
           borderTop: '1px solid #e8f4fd',
@@ -826,6 +853,32 @@ const AIChat = () => {
         }}
       >
         <Box sx={{ maxWidth: '80%', mx: 'auto' }}>
+          {/* Workspace Selection Notification */}
+          {!selectedWorkspace && (
+            <Alert
+              severity="info"
+              icon={<AutoAwesomeIcon />}
+              sx={{
+                mb: 1.5,
+                borderRadius: 2,
+                bgcolor: 'rgba(102, 126, 234, 0.08)',
+                border: '1px solid rgba(102, 126, 234, 0.2)',
+                '& .MuiAlert-icon': {
+                  color: '#667eea'
+                }
+              }}
+            >
+              <Box>
+                <Typography variant="body2" sx={{ fontWeight: 600, mb: 0.5 }}>
+                  Select a workspace to get started
+                </Typography>
+                <Typography variant="caption" sx={{ color: 'text.secondary' }}>
+                  Choose a workspace from the sidebar to start building your data pipeline
+                </Typography>
+              </Box>
+            </Alert>
+          )}
+
           <TextField
             fullWidth
             multiline
@@ -833,8 +886,12 @@ const AIChat = () => {
             value={inputMessage}
             onChange={(e) => setInputMessage(e.target.value)}
             onKeyPress={handleKeyPress}
-            placeholder="Ask about data sources, transformations, or pipeline architecture..."
-            disabled={isLoading}
+            placeholder={
+              !selectedWorkspace
+                ? "Select a workspace to start chatting..."
+                : "Ask about data sources, transformations, or pipeline architecture..."
+            }
+            disabled={isLoading || !selectedWorkspace}
             size="small"
             inputRef={inputRef}
             autoFocus
@@ -843,7 +900,7 @@ const AIChat = () => {
                 <InputAdornment position="end">
                   <IconButton
                     onClick={handleSendMessage}
-                    disabled={!inputMessage.trim() || isLoading}
+                    disabled={!inputMessage.trim() || isLoading || !selectedWorkspace}
                     color="primary"
                     size="small"
                     sx={{

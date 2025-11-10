@@ -269,7 +269,8 @@ class DatabaseService:
         pipeline_name: Optional[str] = None,
         error_message: Optional[str] = None,
         error_details: Optional[Dict[str, Any]] = None,
-        metadata: Optional[Dict[str, Any]] = None
+        metadata: Optional[Dict[str, Any]] = None,
+        clear_error: bool = False  # Explicitly clear error messages on success
     ) -> Optional[Dict[str, Any]]:
         """Update job status and details"""
         with self.get_session() as session:
@@ -299,6 +300,9 @@ class DatabaseService:
                 job.pipeline_name = pipeline_name
             if error_message is not None:
                 job.error_message = error_message
+            if clear_error:
+                job.error_message = None
+                job.error_details = None
             if error_details is not None:
                 job.error_details = error_details
             if metadata is not None:

@@ -23,7 +23,8 @@
       "Bash(brew list:*)",
       "Bash(pip3 uninstall:*)",
       "Bash(pip3 install:*)",
-      "Bash(lsof:*)"
+      "Bash(lsof:*)",
+      "Bash(npm run build:*)"
     ],
     "deny": [],
     "ask": []
