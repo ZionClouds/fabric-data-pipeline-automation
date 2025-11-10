@@ -2060,7 +2060,7 @@ async def deploy_pipeline_from_job(job_id: str):
         logger.info(f"Deploying with config: {config}")
 
         result = await deploy_fabric_pipeline(
-            workspace_name=config.get("workspace_name", "jay-dev"),
+            workspace_id=config.get("workspace_id"),
             lakehouse_name=config.get("lakehouse_name", "jay_dev_lakehouse"),
             warehouse_name=config.get("warehouse_name", "jay-dev-warehouse"),
             source_folder=config.get("source_folder", "bronze"),
@@ -2087,13 +2087,14 @@ async def deploy_pipeline_from_job(job_id: str):
         elif result and result.get("pipeline_id"):
             logger.info(f"[SUCCESS] Pipeline deployed successfully to Fabric!")
 
-            # Update job with deployment results
+            # Update job with deployment results (clear any previous errors)
             db_service.update_job_status(
                 job_id=job_id,
                 status='completed',
                 pipeline_deployment_status='completed',
                 pipeline_id=result.get("pipeline_id"),
-                pipeline_name=result.get("pipeline_name")
+                pipeline_name=result.get("pipeline_name"),
+                clear_error=True  # Clear previous errors on success
             )
 
             return {

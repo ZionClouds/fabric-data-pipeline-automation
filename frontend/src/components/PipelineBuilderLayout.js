@@ -15,7 +15,9 @@ import {
   Chip,
   Paper,
   IconButton,
-  Tooltip
+  Tooltip,
+  Snackbar,
+  Alert
 } from '@mui/material';
 import {
   Chat as ChatIcon,
@@ -39,6 +41,7 @@ const PipelineBuilderLayout = () => {
   const [workspaces, setWorkspaces] = useState([]);
   const [isLoadingWorkspaces, setIsLoadingWorkspaces] = useState(true);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [showWorkspaceAlert, setShowWorkspaceAlert] = useState(false);
 
   useEffect(() => {
     loadWorkspaces();
@@ -64,6 +67,24 @@ const PipelineBuilderLayout = () => {
     } finally {
       setIsLoadingWorkspaces(false);
     }
+  };
+
+  // Handle tab navigation with workspace validation
+  const handleTabClick = (tab) => {
+    if (!selectedWorkspace) {
+      // Show alert if no workspace is selected
+      setShowWorkspaceAlert(true);
+      return;
+    }
+    setActiveTab(tab);
+  };
+
+  // Close alert
+  const handleCloseAlert = (event, reason) => {
+    if (reason === 'clickaway') {
+      return;
+    }
+    setShowWorkspaceAlert(false);
   };
 
   return (
@@ -212,7 +233,7 @@ const PipelineBuilderLayout = () => {
         <List sx={{ flex: 1, pt: 3 }}>
           <ListItem disablePadding>
             <ListItemButton
-              onClick={() => setActiveTab('chat')}
+              onClick={() => handleTabClick('chat')}
               selected={activeTab === 'chat'}
               sx={{
                 color: 'rgba(255, 255, 255, 0.8)',
@@ -248,7 +269,7 @@ const PipelineBuilderLayout = () => {
 
           <ListItem disablePadding>
             <ListItemButton
-              onClick={() => setActiveTab('preview')}
+              onClick={() => handleTabClick('preview')}
               selected={activeTab === 'preview'}
               sx={{
                 color: 'rgba(255, 255, 255, 0.8)',
@@ -284,7 +305,7 @@ const PipelineBuilderLayout = () => {
 
           <ListItem disablePadding>
             <ListItemButton
-              onClick={() => setActiveTab('pipelines')}
+              onClick={() => handleTabClick('pipelines')}
               selected={activeTab === 'pipelines'}
               sx={{
                 color: 'rgba(255, 255, 255, 0.8)',
@@ -726,6 +747,29 @@ const PipelineBuilderLayout = () => {
           </Box>
         )}
       </Box>
+
+      {/* Workspace Selection Alert Snackbar */}
+      <Snackbar
+        open={showWorkspaceAlert}
+        autoHideDuration={1500}
+        onClose={handleCloseAlert}
+        anchorOrigin={{ vertical: 'top', horizontal: 'center' }}
+        sx={{ mt: 8 }}
+      >
+        <Alert
+          onClose={handleCloseAlert}
+          severity="warning"
+          variant="filled"
+          sx={{
+            width: '100%',
+            fontSize: '14px',
+            fontWeight: 600,
+            boxShadow: '0 8px 24px rgba(255, 152, 0, 0.3)',
+          }}
+        >
+          ⚠️ Please select a workspace from the sidebar first!
+        </Alert>
+      </Snackbar>
     </Box>
   );
 };
