@@ -120,6 +120,24 @@ JWKS_URL = f"https://login.microsoftonline.com/{AZURE_TENANT_ID}/discovery/v2.0/
 
 # ==================== Database Helper Functions ====================
 
+def generate_conversation_title(user_message: str) -> str:
+    """
+    Generate a short title from the first user message
+    """
+    # Truncate and clean the message for use as a title
+    title = user_message.strip()
+
+    # Remove special characters and extra whitespace
+    import re
+    title = re.sub(r'\s+', ' ', title)
+
+    # Truncate to 50 characters
+    if len(title) > 50:
+        title = title[:47] + "..."
+
+    return title if title else "New Conversation"
+
+
 def get_or_create_conversation(
     user_email: str,
     workspace_id: Optional[str] = None,
@@ -161,6 +179,23 @@ def get_or_create_conversation(
         return str(uuid.uuid4())
 
 
+def update_conversation_title(conversation_id: str, user_message: str):
+    """
+    Update conversation title if it hasn't been set yet
+    """
+    try:
+        db_service = get_db_service()
+        conversation = db_service.get_conversation(conversation_id)
+
+        # Only update if the conversation exists and has no title or default title
+        if conversation and (not conversation.get('title') or conversation.get('title') == 'New Conversation'):
+            title = generate_conversation_title(user_message)
+            db_service.update_conversation(conversation_id, title=title)
+            logger.info(f"Updated conversation title to: {title}")
+    except Exception as e:
+        logger.error(f"Error updating conversation title: {str(e)}")
+
+
 def save_chat_message(
     conversation_id: str,
     role: str,
@@ -176,6 +211,11 @@ def save_chat_message(
             content=content,
             metadata=metadata
         )
+
+        # Update conversation title from first user message
+        if role == "user":
+            update_conversation_title(conversation_id, content)
+
     except RuntimeError as e:
         # Database not initialized - log warning but don't fail
         logger.warning(f"Database not available, skipping message save: {str(e)}")
@@ -430,6 +470,81 @@ async def root():
 @app.get("/health")
 async def health_check():
     return {"status": "healthy"}
+
+# Clear conversation messages endpoint
+@app.delete("/api/conversations/{conversation_id}/messages")
+async def clear_conversation(conversation_id: str, user: dict = Depends(validate_token)):
+    """Clear all messages from a conversation without deleting the conversation"""
+    try:
+        db_service = get_db_service()
+        success = db_service.clear_conversation_messages(conversation_id)
+
+        if success:
+            logger.info(f"Cleared conversation {conversation_id} messages for user: {user['email']}")
+            return {"success": True, "message": "Chat cleared successfully"}
+        else:
+            raise HTTPException(status_code=404, detail="Conversation not found")
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error clearing conversation: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to clear conversation: {str(e)}")
+
+# Temporary chat endpoint (no database persistence)
+@app.post("/api/ai/chat-temp", response_model=ChatResponse)
+async def chat_temp(request: ChatRequest, user: dict = Depends(validate_token)):
+    """
+    Temporary chat endpoint that does not persist messages to database
+
+    This endpoint provides the same AI functionality as /api/ai/chat but
+    without storing conversation history in the database.
+    """
+    try:
+        logger.info(f"Temporary chat request for workspace: {request.workspace_id} by user: {user['email']}")
+
+        # Get or create conversation context for this user (in-memory only)
+        session_id = f"temp_{user['email']}_{request.workspace_id}"
+        conv_context = context_manager.get_context(session_id)
+
+        # Get the last user message
+        user_message = None
+        for msg in reversed(request.messages):
+            if msg.role == "user":
+                user_message = msg.content
+                break
+
+        if not user_message:
+            raise HTTPException(status_code=400, detail="No user message found")
+
+        # Store messages in context (in-memory)
+        for msg in request.messages:
+            conv_context.add_message(msg.role, msg.content)
+
+        # Call Azure AI Agent with Bing Grounding
+        ai_response = await call_azure_ai_agent(
+            user_message=user_message,
+            conversation_history=request.messages,
+            workspace_id=request.workspace_id,
+            lakehouse_id=request.lakehouse_id if hasattr(request, 'lakehouse_id') else None
+        )
+
+        # Add AI response to context
+        conv_context.add_message("assistant", ai_response)
+
+        logger.info(f"Temporary chat completed successfully for user: {user['email']}")
+
+        return ChatResponse(
+            response=ai_response,
+            conversation_id=None,  # No conversation ID for temporary chat
+            message_id=None
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Temporary chat error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Chat error: {str(e)}")
 
 # AI Chat endpoint (GPT-4o-mini with Bing Grounding via Azure AI Agents - Primary AI)
 @app.post("/api/ai/chat", response_model=ChatResponse)
@@ -782,7 +897,8 @@ Would you like me to provide manual instructions instead?"""
                     pipeline_preview=None,
                     shortcut_info=None,
                     needs_confirmation=False,
-                    confirmation_action=None
+                    confirmation_action=None,
+                    pipeline_name=deployment_config.get('pipeline_name')
                 )
 
         # CHECK FOR PENDING APPROACH SELECTION
@@ -1314,11 +1430,59 @@ async def generate_pipeline(request: PipelineGenerateRequest, user: dict = Depen
             description="Detects PII/PHI in CSV files from blob storage. Includes pattern detection for SSN, Member ID, DOB, Email, and Phone numbers."
         )
 
+        # Generate architectural reasoning/overview
+        reasoning = f"""## Pipeline Architecture Overview
+
+This pipeline implements a comprehensive data processing solution with PII/PHI detection capabilities, following a medallion architecture pattern for Microsoft Fabric.
+
+### Pipeline Flow:
+
+**1. Data Discovery Phase**
+   - **Get Metadata**: Scans the lakehouse source folder (Files/claims) to discover all available CSV files
+   - **GetProcessedFileNames**: Queries the warehouse to retrieve a list of files that have already been processed, preventing duplicate processing
+
+**2. Filtering Phase**
+   - **SetEmptyFileArray**: Initializes an array to store processed file names
+   - **ForEach1**: Iterates through warehouse results to build the processed files list
+   - **FilterNewFiles**: Filters out files that have already been processed, ensuring only new data flows through the pipeline
+
+**3. Processing Phase**
+   - **forEach Loop**: Processes each unprocessed file individually
+   - **PHI_PII_detection Notebook**:
+     - Reads CSV data from the bronze layer (Files/claims)
+     - Detects PII/PHI patterns including:
+       - Social Security Numbers (SSN)
+       - Member IDs
+       - Dates of Birth (DOB)
+       - Email addresses
+       - Phone numbers
+     - Joins with prior authorization data for enrichment
+     - Writes processed results to the silver layer (Files/silver)
+
+**4. Notification & Integration Phase**
+   - **Send PII Alert Notification**: Sends email alerts to the data team when PII/PHI is detected, ensuring compliance awareness
+   - **Load to OneLake Tables**: Moves processed data from the silver layer to OneLake tables for analytics and reporting
+
+### Data Layers:
+
+- **Bronze Layer**: Raw ingestion zone (Files/claims) - stores original CSV files
+- **Silver Layer**: Processed data zone (Files/silver) - contains cleaned, validated, and enriched data with PII/PHI detection results
+
+### Key Features:
+
+✓ Automated file discovery and processing
+✓ Duplicate prevention through warehouse tracking
+✓ PII/PHI pattern detection for compliance
+✓ Email notifications for data governance
+✓ Medallion architecture for data quality
+✓ Scalable ForEach processing for multiple files"""
+
         # Store in memory for deployment later
         generated_pipelines[pipeline_id] = {
             "pipeline_name": pipeline_name,
             "activities": activities,
             "notebooks": [notebook],
+            "reasoning": reasoning,
             "workspace_id": request.workspace_id,
             "config": {
                 "workspace_id": request.workspace_id,
@@ -1336,6 +1500,7 @@ async def generate_pipeline(request: PipelineGenerateRequest, user: dict = Depen
             "pipeline_name": pipeline_name,
             "activities": [activity.dict() if hasattr(activity, 'dict') else activity for activity in activities],
             "notebooks": [notebook.dict() if hasattr(notebook, 'dict') else notebook for notebook in [notebook]],
+            "reasoning": reasoning,
             "workspace_id": request.workspace_id,
             "config": generated_pipelines[pipeline_id]["config"]
         }
@@ -1357,7 +1522,7 @@ async def generate_pipeline(request: PipelineGenerateRequest, user: dict = Depen
             activities=activities,
             notebooks=[notebook],
             fabric_pipeline_json={},
-            reasoning=f"Pipeline preview ready:\n\nActivities:\n1. Get Metadata - Retrieves file list from lakehouse\n2. GetProcessedFileNames - Queries warehouse for already processed files\n3. SetEmptyFileArray - Initializes processed files variable\n4. ForEach1 - Builds list of processed file names\n5. FilterNewFiles - Filters out already processed files\n6. forEach - Processes each new file with PHI_PII_detection notebook\n7. Send PII Alert Notification - Sends email alert when PII/PHI is detected\n8. Load to OneLake Tables - Moves processed data from silver layer to OneLake tables using Dataflow Gen2\n\nConfiguration:\n- Workspace: jay-dev\n- Lakehouse: jay_dev_lakehouse\n- Warehouse: jay-dev-warehouse\n- Source: Files/claims\n- Output: Files/silver → OneLake Tables\n\nClick 'Deploy to Fabric Workspace' to create this pipeline."
+            reasoning=reasoning
         )
 
     except HTTPException:

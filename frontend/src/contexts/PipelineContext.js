@@ -13,6 +13,7 @@ export const PipelineProvider = ({ children }) => {
   const [selectedJobForPreview, setSelectedJobForPreview] = useState(null);
   const [refreshPipelineList, setRefreshPipelineList] = useState(0);
   const [activeTab, setActiveTab] = useState('chat');
+  const [isTemporaryChat, setIsTemporaryChat] = useState(false);
   const [pipelineConfig, setPipelineConfig] = useState({
     source_type: null,
     tables: [],
@@ -100,6 +101,7 @@ export const PipelineProvider = ({ children }) => {
         currentPipeline,
         setCurrentPipeline,
         chatMessages,
+        setChatMessages,
         addChatMessage,
         clearChat,
         conversationId,
@@ -116,6 +118,8 @@ export const PipelineProvider = ({ children }) => {
         activeTab,
         setActiveTab,
         handleTabClick,
+        isTemporaryChat,
+        setIsTemporaryChat,
       }}
     >
       {children}

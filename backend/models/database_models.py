@@ -48,6 +48,7 @@ class Conversation(Base):
     __tablename__ = "conversations"
 
     conversation_id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    title = Column(String(500), nullable=True)  # Conversation title for better UX
     user_id = Column(String(255), nullable=True)
     user_email = Column(String(255), nullable=True)
     workspace_id = Column(String(255), nullable=True)
@@ -67,6 +68,7 @@ class Conversation(Base):
         """Convert to dictionary"""
         return {
             "conversation_id": self.conversation_id,
+            "title": self.title,
             "user_id": self.user_id,
             "user_email": self.user_email,
             "workspace_id": self.workspace_id,
@@ -101,7 +103,7 @@ class ConversationMessage(Base):
             "conversation_id": self.conversation_id,
             "role": self.role,
             "content": self.content,
-            "timestamp": self.timestamp.isoformat() if self.timestamp else None,
+            "timestamp": int(self.timestamp.timestamp() * 1000) if self.timestamp else None,
             "extra_metadata": self.extra_metadata
         }
 
@@ -130,6 +132,8 @@ class Job(Base):
     lakehouse_id = Column(String(255), nullable=True)
     workspace_name = Column(String(255), nullable=True)
     lakehouse_name = Column(String(255), nullable=True)
+    warehouse_id = Column(String(255), nullable=True)
+    warehouse_name = Column(String(255), nullable=True)
 
     # Timestamps
     created_at = Column(DateTime, default=datetime.utcnow)
@@ -164,6 +168,8 @@ class Job(Base):
             "lakehouse_id": self.lakehouse_id,
             "workspace_name": self.workspace_name,
             "lakehouse_name": self.lakehouse_name,
+            "warehouse_id": self.warehouse_id,
+            "warehouse_name": self.warehouse_name,
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
             "started_at": self.started_at.isoformat() if self.started_at else None,

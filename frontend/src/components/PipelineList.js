@@ -46,7 +46,7 @@ import {
 import { usePipeline } from '../contexts/PipelineContext';
 
 // API URL from env config (supports Docker runtime injection)
-const API_BASE_URL = window._env_?.REACT_APP_API_URL || process.env.REACT_APP_API_URL || 'http://localhost:8000';
+const API_BASE_URL = window._env_?.REACT_APP_API_URL || process.env.REACT_APP_API_URL || 'http://localhost:8080';
 
 const PipelineList = () => {
   const { selectedWorkspace, setSelectedJobForPreview, refreshPipelineList } = usePipeline();

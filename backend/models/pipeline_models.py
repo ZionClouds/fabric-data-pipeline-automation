@@ -117,6 +117,7 @@ class ChatResponse(BaseModel):
     confirmation_action: Optional[str] = None  # What action needs confirmation (e.g., "create_shortcut")
     conversation_id: Optional[str] = None  # Database conversation ID
     job_id: Optional[str] = None  # Database job ID if applicable
+    pipeline_name: Optional[str] = None  # Pipeline name extracted from conversation
 
 class NotebookCode(BaseModel):
     notebook_name: str
