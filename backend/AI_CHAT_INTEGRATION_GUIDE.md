@@ -305,7 +305,7 @@ const conversationFlow = {
 
 ```bash
 # Test deployment
-curl -X POST http://localhost:8000/api/fabric/deploy-pipeline \
+curl -X POST http://localhost:8080/api/fabric/deploy-pipeline \
   -H "Content-Type: application/json" \
   -d '{
     "workspace_name": "jay-dev",
@@ -316,10 +316,10 @@ curl -X POST http://localhost:8000/api/fabric/deploy-pipeline \
   }'
 
 # Validate workspace
-curl http://localhost:8000/api/fabric/validate-workspace/jay-dev
+curl http://localhost:8080/api/fabric/validate-workspace/jay-dev
 
 # List lakehouses
-curl http://localhost:8000/api/fabric/list-lakehouses/jay-dev
+curl http://localhost:8080/api/fabric/list-lakehouses/jay-dev
 ```
 
 ---

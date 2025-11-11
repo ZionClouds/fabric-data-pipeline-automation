@@ -18,7 +18,7 @@ services:
       # Anthropic Claude Configuration
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
       - CLAUDE_MODEL=claude-sonnet-4-20250514
-      - CLAUDE_MAX_TOKENS=8000
+      - CLAUDE_MAX_TOKENS=8080
 
       # Azure OpenAI Configuration
       - AZURE_OPENAI_ENDPOINT=${AZURE_OPENAI_ENDPOINT}

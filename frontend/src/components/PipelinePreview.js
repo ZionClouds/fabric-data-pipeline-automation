@@ -5,7 +5,7 @@ import { pipelineApi } from '../services/api';
 import NotebookViewer from './NotebookViewer';
 
 // API URL from env config (supports Docker runtime injection)
-const API_BASE_URL = window._env_?.REACT_APP_API_URL || process.env.REACT_APP_API_URL || 'http://localhost:8000';
+const API_BASE_URL = window._env_?.REACT_APP_API_URL || process.env.REACT_APP_API_URL || 'http://localhost:8080';
 import {
   Box,
   Typography,

@@ -72,9 +72,18 @@ class FabricAPIService:
 
                 return workspaces
 
+        except httpx.HTTPStatusError as e:
+            error_msg = f"HTTP {e.response.status_code}: {e.response.text}"
+            logger.error(f"Error fetching workspaces from Fabric API: {error_msg}")
+            raise Exception(error_msg)
+        except httpx.RequestError as e:
+            error_msg = f"Request error: {type(e).__name__} - {str(e)}"
+            logger.error(f"Error fetching workspaces from Fabric API: {error_msg}")
+            raise Exception(error_msg)
         except Exception as e:
-            logger.error(f"Error fetching workspaces from Fabric API: {str(e)}")
-            raise
+            error_msg = f"{type(e).__name__}: {str(e)}"
+            logger.error(f"Error fetching workspaces from Fabric API: {error_msg}")
+            raise Exception(error_msg)
 
     async def get_workspace_lakehouses(self, workspace_id: str) -> List[Dict[str, Any]]:
         """

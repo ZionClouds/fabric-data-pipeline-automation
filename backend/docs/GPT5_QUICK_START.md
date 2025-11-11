@@ -66,7 +66,7 @@ python3 main.py
 ### Endpoint 1: GPT-5 with Bing Search (Recommended)
 
 ```bash
-POST http://localhost:8000/api/ai/gpt5-chat
+POST http://localhost:8080/api/ai/gpt5-chat
 ```
 
 **Use for:**
@@ -76,7 +76,7 @@ POST http://localhost:8000/api/ai/gpt5-chat
 
 **Example:**
 ```bash
-curl -X POST http://localhost:8000/api/ai/gpt5-chat \
+curl -X POST http://localhost:8080/api/ai/gpt5-chat \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer test" \
   -d '{
@@ -93,7 +93,7 @@ curl -X POST http://localhost:8000/api/ai/gpt5-chat \
 ### Endpoint 2: GPT-5 Simple (Faster)
 
 ```bash
-POST http://localhost:8000/api/ai/gpt5-simple-chat
+POST http://localhost:8080/api/ai/gpt5-simple-chat
 ```
 
 **Use for:**

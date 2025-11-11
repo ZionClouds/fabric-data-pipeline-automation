@@ -20,7 +20,7 @@ DATABASE_URL = (
     f"mssql+pyodbc://{DATABASE_USER}:{encoded_password}"
     f"@{DATABASE_SERVER}/{DATABASE_NAME}"
     f"?driver=ODBC+Driver+18+for+SQL+Server"
-    f"&Encrypt=yes&TrustServerCertificate=no&Connection+Timeout=30"
+    f"&Encrypt=yes&TrustServerCertificate=yes&Connection+Timeout=30"
 )
 
 # ============================================================================
@@ -105,7 +105,7 @@ def get_db_connection_string():
         f"UID={DATABASE_USER};"
         f"PWD={DATABASE_PASSWORD};"
         f"Encrypt=yes;"
-        f"TrustServerCertificate=no;"
+        f"TrustServerCertificate=yes;"
         f"Connection Timeout=30;"
     )
 

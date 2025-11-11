@@ -242,7 +242,7 @@ See `QUICK_INTEGRATION_EXAMPLE.md` for code examples.
 
 ```bash
 # Test deployment
-curl -X POST http://localhost:8000/api/fabric/deploy-pipeline \
+curl -X POST http://localhost:8080/api/fabric/deploy-pipeline \
   -H "Content-Type: application/json" \
   -d '{
     "workspace_name": "jay-dev",
@@ -358,7 +358,7 @@ from fabric_deployment_endpoint import router as fabric_router
 app.include_router(fabric_router)
 
 # 3. Test it
-curl -X POST http://localhost:8000/api/fabric/deploy-pipeline \
+curl -X POST http://localhost:8080/api/fabric/deploy-pipeline \
   -H "Content-Type: application/json" \
   -d '{"workspace_name":"jay-dev","lakehouse_name":"jay_dev_lakehouse","source_folder":"test","output_folder":"out","pipeline_name":"Test"}'
 

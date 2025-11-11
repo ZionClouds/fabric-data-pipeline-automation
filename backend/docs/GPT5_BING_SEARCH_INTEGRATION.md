@@ -207,7 +207,7 @@ python3 main.py
 
 Or with uvicorn:
 ```bash
-uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+uvicorn main:app --host 0.0.0.0 --port 8080 --reload
 ```
 
 ---
@@ -218,7 +218,7 @@ uvicorn main:app --host 0.0.0.0 --port 8000 --reload
 
 **Request:**
 ```bash
-curl -X POST http://localhost:8000/api/ai/gpt5-chat \
+curl -X POST http://localhost:8080/api/ai/gpt5-chat \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer test" \
   -d '{

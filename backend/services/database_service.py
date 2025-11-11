@@ -53,6 +53,7 @@ class DatabaseService:
 
     def create_conversation(
         self,
+        title: Optional[str] = None,
         user_id: Optional[str] = None,
         user_email: Optional[str] = None,
         workspace_id: Optional[str] = None,
@@ -64,6 +65,7 @@ class DatabaseService:
         """Create a new conversation"""
         with self.get_session() as session:
             conversation = Conversation(
+                title=title or "New Conversation",
                 user_id=user_id,
                 user_email=user_email,
                 workspace_id=workspace_id,
@@ -110,6 +112,7 @@ class DatabaseService:
     def update_conversation(
         self,
         conversation_id: str,
+        title: Optional[str] = None,
         status: Optional[str] = None,
         workspace_id: Optional[str] = None,
         lakehouse_id: Optional[str] = None,
@@ -126,6 +129,8 @@ class DatabaseService:
             if not conversation:
                 return None
 
+            if title is not None:
+                conversation.title = title
             if status is not None:
                 conversation.status = status
             if workspace_id is not None:
@@ -213,6 +218,26 @@ class DatabaseService:
         conversation['messages'] = messages
         return conversation
 
+    def clear_conversation_messages(self, conversation_id: str) -> bool:
+        """Clear all messages from a conversation without deleting the conversation"""
+        with self.get_session() as session:
+            # Verify conversation exists
+            conversation = session.query(Conversation).filter(
+                Conversation.conversation_id == conversation_id
+            ).first()
+
+            if not conversation:
+                return False
+
+            # Delete all messages
+            session.query(ConversationMessage).filter(
+                ConversationMessage.conversation_id == conversation_id
+            ).delete()
+
+            # Update conversation timestamp
+            conversation.updated_at = datetime.utcnow()
+            return True
+
     # ==================== Job Operations ====================
 
     def create_job(
@@ -223,6 +248,8 @@ class DatabaseService:
         lakehouse_id: Optional[str] = None,
         workspace_name: Optional[str] = None,
         lakehouse_name: Optional[str] = None,
+        warehouse_id: Optional[str] = None,
+        warehouse_name: Optional[str] = None,
         pipeline_definition: Optional[Dict[str, Any]] = None,
         metadata: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
@@ -236,6 +263,8 @@ class DatabaseService:
                 lakehouse_id=lakehouse_id,
                 workspace_name=workspace_name,
                 lakehouse_name=lakehouse_name,
+                warehouse_id=warehouse_id,
+                warehouse_name=warehouse_name,
                 pipeline_definition=pipeline_definition,
                 metadata=metadata
             )

@@ -236,7 +236,7 @@ AI: ⏳ Deploying pipeline...
 
 ```bash
 # What happens when user clicks "Generate Pipeline"
-curl -X POST http://localhost:8000/api/fabric/deploy-pipeline \
+curl -X POST http://localhost:8080/api/fabric/deploy-pipeline \
   -H "Content-Type: application/json" \
   -d '{
     "workspace_name": "jay-dev",
@@ -345,10 +345,10 @@ export function DeployPipelineButton({ config, onDeploy, onCancel }: DeployButto
 ```bash
 # 1. Start your backend
 cd backend
-python3 -m uvicorn main:app --reload --port 8000
+python3 -m uvicorn main:app --reload --port 8080
 
 # 2. Test the endpoint
-curl -X POST http://localhost:8000/api/fabric/deploy-pipeline \
+curl -X POST http://localhost:8080/api/fabric/deploy-pipeline \
   -H "Content-Type: application/json" \
   -d '{
     "workspace_name": "jay-dev",

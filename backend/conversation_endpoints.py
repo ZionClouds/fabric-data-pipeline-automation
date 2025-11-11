@@ -19,6 +19,7 @@ class ConversationResponse(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
     conversation_id: str
+    title: Optional[str] = None
     user_id: Optional[str] = None
     user_email: Optional[str] = None
     workspace_id: Optional[str] = None
@@ -37,6 +38,7 @@ class ConversationWithMessagesResponse(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
     conversation_id: str
+    title: Optional[str] = None
     user_id: Optional[str] = None
     user_email: Optional[str] = None
     workspace_id: Optional[str] = None
@@ -156,6 +158,38 @@ async def get_conversation(conversation_id: str):
             conversation_id=conversation_id
         )
         raise HTTPException(status_code=500, detail=f"Error retrieving conversation: {str(e)}")
+
+
+@router.patch("/conversations/{conversation_id}")
+async def update_conversation(conversation_id: str, title: str = Query(..., description="New title for the conversation")):
+    """
+    Update conversation title
+    """
+    try:
+        db_service = get_db_service()
+        conversation = db_service.update_conversation(conversation_id, title=title)
+
+        if not conversation:
+            raise HTTPException(status_code=404, detail="Conversation not found")
+
+        db_service.log_info(
+            service="conversation_endpoints",
+            message=f"Conversation title updated: {conversation_id}",
+            conversation_id=conversation_id
+        )
+
+        return {"success": True, "message": "Conversation updated successfully", "conversation": conversation}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        db_service = get_db_service()
+        db_service.log_error(
+            service="conversation_endpoints",
+            message=f"Error updating conversation {conversation_id}: {str(e)}",
+            conversation_id=conversation_id
+        )
+        raise HTTPException(status_code=500, detail=f"Error updating conversation: {str(e)}")
 
 
 @router.delete("/conversations/{conversation_id}")
