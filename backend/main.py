@@ -897,7 +897,8 @@ Would you like me to provide manual instructions instead?"""
                     pipeline_preview=None,
                     shortcut_info=None,
                     needs_confirmation=False,
-                    confirmation_action=None
+                    confirmation_action=None,
+                    pipeline_name=deployment_config.get('pipeline_name')
                 )
 
         # CHECK FOR PENDING APPROACH SELECTION
@@ -1429,11 +1430,59 @@ async def generate_pipeline(request: PipelineGenerateRequest, user: dict = Depen
             description="Detects PII/PHI in CSV files from blob storage. Includes pattern detection for SSN, Member ID, DOB, Email, and Phone numbers."
         )
 
+        # Generate architectural reasoning/overview
+        reasoning = f"""## Pipeline Architecture Overview
+
+This pipeline implements a comprehensive data processing solution with PII/PHI detection capabilities, following a medallion architecture pattern for Microsoft Fabric.
+
+### Pipeline Flow:
+
+**1. Data Discovery Phase**
+   - **Get Metadata**: Scans the lakehouse source folder (Files/claims) to discover all available CSV files
+   - **GetProcessedFileNames**: Queries the warehouse to retrieve a list of files that have already been processed, preventing duplicate processing
+
+**2. Filtering Phase**
+   - **SetEmptyFileArray**: Initializes an array to store processed file names
+   - **ForEach1**: Iterates through warehouse results to build the processed files list
+   - **FilterNewFiles**: Filters out files that have already been processed, ensuring only new data flows through the pipeline
+
+**3. Processing Phase**
+   - **forEach Loop**: Processes each unprocessed file individually
+   - **PHI_PII_detection Notebook**:
+     - Reads CSV data from the bronze layer (Files/claims)
+     - Detects PII/PHI patterns including:
+       - Social Security Numbers (SSN)
+       - Member IDs
+       - Dates of Birth (DOB)
+       - Email addresses
+       - Phone numbers
+     - Joins with prior authorization data for enrichment
+     - Writes processed results to the silver layer (Files/silver)
+
+**4. Notification & Integration Phase**
+   - **Send PII Alert Notification**: Sends email alerts to the data team when PII/PHI is detected, ensuring compliance awareness
+   - **Load to OneLake Tables**: Moves processed data from the silver layer to OneLake tables for analytics and reporting
+
+### Data Layers:
+
+- **Bronze Layer**: Raw ingestion zone (Files/claims) - stores original CSV files
+- **Silver Layer**: Processed data zone (Files/silver) - contains cleaned, validated, and enriched data with PII/PHI detection results
+
+### Key Features:
+
+✓ Automated file discovery and processing
+✓ Duplicate prevention through warehouse tracking
+✓ PII/PHI pattern detection for compliance
+✓ Email notifications for data governance
+✓ Medallion architecture for data quality
+✓ Scalable ForEach processing for multiple files"""
+
         # Store in memory for deployment later
         generated_pipelines[pipeline_id] = {
             "pipeline_name": pipeline_name,
             "activities": activities,
             "notebooks": [notebook],
+            "reasoning": reasoning,
             "workspace_id": request.workspace_id,
             "config": {
                 "workspace_id": request.workspace_id,
@@ -1451,6 +1500,7 @@ async def generate_pipeline(request: PipelineGenerateRequest, user: dict = Depen
             "pipeline_name": pipeline_name,
             "activities": [activity.dict() if hasattr(activity, 'dict') else activity for activity in activities],
             "notebooks": [notebook.dict() if hasattr(notebook, 'dict') else notebook for notebook in [notebook]],
+            "reasoning": reasoning,
             "workspace_id": request.workspace_id,
             "config": generated_pipelines[pipeline_id]["config"]
         }
@@ -1472,7 +1522,7 @@ async def generate_pipeline(request: PipelineGenerateRequest, user: dict = Depen
             activities=activities,
             notebooks=[notebook],
             fabric_pipeline_json={},
-            reasoning=f"Pipeline preview ready:\n\nActivities:\n1. Get Metadata - Retrieves file list from lakehouse\n2. GetProcessedFileNames - Queries warehouse for already processed files\n3. SetEmptyFileArray - Initializes processed files variable\n4. ForEach1 - Builds list of processed file names\n5. FilterNewFiles - Filters out already processed files\n6. forEach - Processes each new file with PHI_PII_detection notebook\n7. Send PII Alert Notification - Sends email alert when PII/PHI is detected\n8. Load to OneLake Tables - Moves processed data from silver layer to OneLake tables using Dataflow Gen2\n\nConfiguration:\n- Workspace: jay-dev\n- Lakehouse: jay_dev_lakehouse\n- Warehouse: jay-dev-warehouse\n- Source: Files/claims\n- Output: Files/silver → OneLake Tables\n\nClick 'Deploy to Fabric Workspace' to create this pipeline."
+            reasoning=reasoning
         )
 
     except HTTPException:

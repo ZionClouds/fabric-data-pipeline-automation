@@ -50,7 +50,7 @@ const ChatSessions = () => {
 
   useEffect(() => {
     loadConversations();
-  }, [user, selectedWorkspace]);
+  }, [user]);
 
   const loadConversations = async () => {
     if (!user) return;
@@ -65,10 +65,6 @@ const ChatSessions = () => {
         limit: 50
       };
 
-      if (selectedWorkspace) {
-        params.workspace_id = selectedWorkspace.id;
-      }
-
       const response = await pipelineApi.getConversations(params);
       setConversations(response.data || []);
     } catch (err) {
@@ -79,7 +75,20 @@ const ChatSessions = () => {
     }
   };
 
-  const handleNewChat = () => {
+  const handleNewChat = async () => {
+    // Mark current conversation as completed if exists
+    if (conversationId) {
+      try {
+        await pipelineApi.updateConversation(
+          conversationId,
+          null, // Don't change title
+          'completed' // Mark as completed so a new conversation will be created
+        );
+      } catch (err) {
+        console.error('Failed to update conversation status:', err);
+      }
+    }
+
     clearChat();
     setConversationId(null);
     localStorage.removeItem('conversationId');

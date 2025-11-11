@@ -124,13 +124,17 @@ async def get_conversations(
         return conversations
 
     except Exception as e:
-        db_service = get_db_service()
-        db_service.log_error(
-            service="conversation_endpoints",
-            message=f"Error getting conversations: {str(e)}",
-            user_id=user_id,
-            metadata={"user_email": user_email, "status": status}
-        )
+        try:
+            db_service = get_db_service()
+            db_service.log_error(
+                service="conversation_endpoints",
+                message=f"Error getting conversations: {str(e)}",
+                user_id=user_id,
+                metadata={"user_email": user_email, "status": status}
+            )
+        except:
+            # If logging fails (e.g., DB unavailable), just print to console
+            print(f"Error getting conversations: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error retrieving conversations: {str(e)}")
 
 
@@ -151,30 +155,37 @@ async def get_conversation(conversation_id: str):
     except HTTPException:
         raise
     except Exception as e:
-        db_service = get_db_service()
-        db_service.log_error(
-            service="conversation_endpoints",
-            message=f"Error getting conversation {conversation_id}: {str(e)}",
-            conversation_id=conversation_id
-        )
+        try:
+            db_service = get_db_service()
+            db_service.log_error(
+                service="conversation_endpoints",
+                message=f"Error getting conversation {conversation_id}: {str(e)}",
+                conversation_id=conversation_id
+            )
+        except:
+            print(f"Error getting conversation {conversation_id}: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error retrieving conversation: {str(e)}")
 
 
 @router.patch("/conversations/{conversation_id}")
-async def update_conversation(conversation_id: str, title: str = Query(..., description="New title for the conversation")):
+async def update_conversation(
+    conversation_id: str,
+    title: Optional[str] = Query(None, description="New title for the conversation"),
+    status: Optional[str] = Query(None, description="New status for the conversation")
+):
     """
-    Update conversation title
+    Update conversation title and/or status
     """
     try:
         db_service = get_db_service()
-        conversation = db_service.update_conversation(conversation_id, title=title)
+        conversation = db_service.update_conversation(conversation_id, title=title, status=status)
 
         if not conversation:
             raise HTTPException(status_code=404, detail="Conversation not found")
 
         db_service.log_info(
             service="conversation_endpoints",
-            message=f"Conversation title updated: {conversation_id}",
+            message=f"Conversation updated: {conversation_id}",
             conversation_id=conversation_id
         )
 
@@ -183,12 +194,15 @@ async def update_conversation(conversation_id: str, title: str = Query(..., desc
     except HTTPException:
         raise
     except Exception as e:
-        db_service = get_db_service()
-        db_service.log_error(
-            service="conversation_endpoints",
-            message=f"Error updating conversation {conversation_id}: {str(e)}",
-            conversation_id=conversation_id
-        )
+        try:
+            db_service = get_db_service()
+            db_service.log_error(
+                service="conversation_endpoints",
+                message=f"Error updating conversation {conversation_id}: {str(e)}",
+                conversation_id=conversation_id
+            )
+        except:
+            print(f"Error updating conversation {conversation_id}: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error updating conversation: {str(e)}")
 
 
@@ -215,12 +229,15 @@ async def delete_conversation(conversation_id: str):
     except HTTPException:
         raise
     except Exception as e:
-        db_service = get_db_service()
-        db_service.log_error(
-            service="conversation_endpoints",
-            message=f"Error deleting conversation {conversation_id}: {str(e)}",
-            conversation_id=conversation_id
-        )
+        try:
+            db_service = get_db_service()
+            db_service.log_error(
+                service="conversation_endpoints",
+                message=f"Error deleting conversation {conversation_id}: {str(e)}",
+                conversation_id=conversation_id
+            )
+        except:
+            print(f"Error deleting conversation {conversation_id}: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error deleting conversation: {str(e)}")
 
 
@@ -247,13 +264,17 @@ async def get_jobs(
         return jobs
 
     except Exception as e:
-        db_service = get_db_service()
-        db_service.log_error(
-            service="conversation_endpoints",
-            message=f"Error getting jobs: {str(e)}",
-            conversation_id=conversation_id,
-            metadata={"status": status, "job_type": job_type}
-        )
+        try:
+            db_service = get_db_service()
+            db_service.log_error(
+                service="conversation_endpoints",
+                message=f"Error getting jobs: {str(e)}",
+                conversation_id=conversation_id,
+                metadata={"status": status, "job_type": job_type}
+            )
+        except:
+            # If logging fails (e.g., DB unavailable), just print to console
+            print(f"Error getting jobs: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error retrieving jobs: {str(e)}")
 
 
@@ -274,12 +295,15 @@ async def get_job(job_id: str):
     except HTTPException:
         raise
     except Exception as e:
-        db_service = get_db_service()
-        db_service.log_error(
-            service="conversation_endpoints",
-            message=f"Error getting job {job_id}: {str(e)}",
-            job_id=job_id
-        )
+        try:
+            db_service = get_db_service()
+            db_service.log_error(
+                service="conversation_endpoints",
+                message=f"Error getting job {job_id}: {str(e)}",
+                job_id=job_id
+            )
+        except:
+            print(f"Error getting job {job_id}: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error retrieving job: {str(e)}")
 
 

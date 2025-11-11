@@ -89,7 +89,12 @@ export const pipelineApi = {
   // Conversations
   getConversations: (params) => api.get('/api/conversations', { params }),
   getConversation: (conversationId) => api.get(`/api/conversations/${conversationId}`),
-  updateConversation: (conversationId, title) => api.patch(`/api/conversations/${conversationId}?title=${encodeURIComponent(title)}`),
+  updateConversation: (conversationId, title, status) => {
+    const params = new URLSearchParams();
+    if (title) params.append('title', title);
+    if (status) params.append('status', status);
+    return api.patch(`/api/conversations/${conversationId}?${params.toString()}`);
+  },
   deleteConversation: (conversationId) => api.delete(`/api/conversations/${conversationId}`),
 
   // Pipeline Design

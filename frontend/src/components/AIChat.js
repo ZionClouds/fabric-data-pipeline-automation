@@ -96,12 +96,12 @@ const AIChat = () => {
     scrollToBottom();
   }, [chatMessages]);
 
-  // Load conversations when component mounts or user/workspace changes
+  // Load conversations when component mounts or user changes
   useEffect(() => {
-    if (user && selectedWorkspace) {
+    if (user) {
       loadConversations();
     }
-  }, [user, selectedWorkspace]);
+  }, [user]);
 
   // Restore conversation_id and messages from database on mount
   useEffect(() => {
@@ -155,10 +155,6 @@ const AIChat = () => {
         limit: 50
       };
 
-      if (selectedWorkspace) {
-        params.workspace_id = selectedWorkspace.id;
-      }
-
       const response = await pipelineApi.getConversations(params);
       setConversations(response.data || []);
     } catch (err) {
@@ -168,11 +164,24 @@ const AIChat = () => {
     }
   };
 
-  const handleNewChat = () => {
+  const handleNewChat = async () => {
+    // Mark current conversation as completed if exists
+    if (conversationId) {
+      try {
+        await pipelineApi.updateConversation(
+          conversationId,
+          null, // Don't change title
+          'completed' // Mark as completed so a new conversation will be created
+        );
+      } catch (err) {
+        console.error('Failed to update conversation status:', err);
+      }
+    }
+
     clearChat();
     setConversationId(null);
     localStorage.removeItem('conversationId');
-    loadConversations(); // Refresh list
+    await loadConversations(); // Refresh list
   };
 
   const handleSelectConversation = async (convId) => {
@@ -218,7 +227,7 @@ const AIChat = () => {
     if (!conversationId || !renameTitle.trim()) return;
 
     try {
-      await pipelineApi.updateConversation(conversationId, renameTitle.trim());
+      await pipelineApi.updateConversation(conversationId, renameTitle.trim(), null);
       await loadConversations(); // Refresh list
       setRenameDialogOpen(false);
     } catch (err) {
@@ -300,6 +309,12 @@ const AIChat = () => {
       // Handle job ID
       if (response.data.job_id) {
         setCurrentJobId(response.data.job_id);
+      }
+
+      // Handle pipeline name
+      if (response.data.pipeline_name) {
+        updatePipelineConfig({ pipeline_name: response.data.pipeline_name });
+        console.log('Pipeline name extracted from chat:', response.data.pipeline_name);
       }
 
       // Handle suggestions
@@ -463,16 +478,199 @@ const AIChat = () => {
               alignItems: 'center',
               justifyContent: 'center',
               flexDirection: 'column',
-              gap: 2
+              gap: 4,
+              maxWidth: 800,
+              mx: 'auto',
+              p: 4
             }}
           >
-            <AutoAwesomeIcon sx={{ fontSize: 64, color: 'primary.main', opacity: 0.3 }} />
-            <Typography variant="h6" color="text.secondary">
-              Start a new conversation
+            {/* Sparkle Icon */}
+            <Box
+              sx={{
+                width: 80,
+                height: 80,
+                borderRadius: '50%',
+                background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                boxShadow: 3
+              }}
+            >
+              <AutoAwesomeIcon sx={{ fontSize: 40, color: 'white' }} />
+            </Box>
+
+            {/* Main Heading */}
+            <Typography variant="h4" sx={{ fontWeight: 700, color: '#667eea', textAlign: 'center' }}>
+              Let's build something amazing
             </Typography>
-            <Typography variant="body2" color="text.secondary">
-              Ask me anything about building pipelines!
+
+            {/* Description */}
+            <Typography variant="body1" color="text.secondary" sx={{ textAlign: 'center', maxWidth: 600 }}>
+              Tell me about your data pipeline needs and I'll help you design the perfect solution.
             </Typography>
+
+            {/* Quick Start Section */}
+            <Box sx={{ width: '100%', mt: 2 }}>
+              <Typography variant="subtitle1" sx={{ mb: 3, textAlign: 'center', fontWeight: 600 }}>
+                ✨ Quick Start
+              </Typography>
+
+              {/* Quick Start Buttons Grid */}
+              <Box
+                sx={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
+                  gap: 2,
+                  width: '100%'
+                }}
+              >
+                {/* Button 1 */}
+                <Card
+                  sx={{
+                    cursor: 'pointer',
+                    transition: 'all 0.2s',
+                    '&:hover': {
+                      transform: 'translateY(-4px)',
+                      boxShadow: 4
+                    }
+                  }}
+                  onClick={() => handleSendMessage('I want to ingest data from SQL Server')}
+                >
+                  <CardContent sx={{ display: 'flex', gap: 2, alignItems: 'center' }}>
+                    <Box
+                      sx={{
+                        width: 48,
+                        height: 48,
+                        borderRadius: 2,
+                        bgcolor: '#f3f4f6',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center'
+                      }}
+                    >
+                      <Typography sx={{ fontSize: 24 }}>💾</Typography>
+                    </Box>
+                    <Box sx={{ flex: 1 }}>
+                      <Typography variant="body1" sx={{ fontWeight: 600, mb: 0.5 }}>
+                        I want to ingest data from SQL Server
+                      </Typography>
+                    </Box>
+                  </CardContent>
+                </Card>
+
+                {/* Button 2 */}
+                <Card
+                  sx={{
+                    cursor: 'pointer',
+                    transition: 'all 0.2s',
+                    '&:hover': {
+                      transform: 'translateY(-4px)',
+                      boxShadow: 4
+                    }
+                  }}
+                  onClick={() => handleSendMessage('Help me build a pipeline for customer analytics')}
+                >
+                  <CardContent sx={{ display: 'flex', gap: 2, alignItems: 'center' }}>
+                    <Box
+                      sx={{
+                        width: 48,
+                        height: 48,
+                        borderRadius: 2,
+                        bgcolor: '#f3f4f6',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center'
+                      }}
+                    >
+                      <Typography sx={{ fontSize: 24 }}>📊</Typography>
+                    </Box>
+                    <Box sx={{ flex: 1 }}>
+                      <Typography variant="body1" sx={{ fontWeight: 600, mb: 0.5 }}>
+                        Help me build a pipeline for customer analytics
+                      </Typography>
+                    </Box>
+                  </CardContent>
+                </Card>
+
+                {/* Button 3 */}
+                <Card
+                  sx={{
+                    cursor: 'pointer',
+                    transition: 'all 0.2s',
+                    '&:hover': {
+                      transform: 'translateY(-4px)',
+                      boxShadow: 4
+                    }
+                  }}
+                  onClick={() => handleSendMessage('I need to load CSV files from Blob Storage')}
+                >
+                  <CardContent sx={{ display: 'flex', gap: 2, alignItems: 'center' }}>
+                    <Box
+                      sx={{
+                        width: 48,
+                        height: 48,
+                        borderRadius: 2,
+                        bgcolor: '#f3f4f6',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center'
+                      }}
+                    >
+                      <Typography sx={{ fontSize: 24 }}>📄</Typography>
+                    </Box>
+                    <Box sx={{ flex: 1 }}>
+                      <Typography variant="body1" sx={{ fontWeight: 600, mb: 0.5 }}>
+                        I need to load CSV files from Blob Storage
+                      </Typography>
+                    </Box>
+                  </CardContent>
+                </Card>
+
+                {/* Button 4 */}
+                <Card
+                  sx={{
+                    cursor: 'pointer',
+                    transition: 'all 0.2s',
+                    '&:hover': {
+                      transform: 'translateY(-4px)',
+                      boxShadow: 4
+                    }
+                  }}
+                  onClick={() => handleSendMessage('Create a pipeline with Bronze/Silver/Gold layers')}
+                >
+                  <CardContent sx={{ display: 'flex', gap: 2, alignItems: 'center' }}>
+                    <Box
+                      sx={{
+                        width: 48,
+                        height: 48,
+                        borderRadius: 2,
+                        bgcolor: '#f3f4f6',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center'
+                      }}
+                    >
+                      <Typography sx={{ fontSize: 24 }}>🏆</Typography>
+                    </Box>
+                    <Box sx={{ flex: 1 }}>
+                      <Typography variant="body1" sx={{ fontWeight: 600, mb: 0.5 }}>
+                        Create a pipeline with Bronze/Silver/Gold layers
+                      </Typography>
+                    </Box>
+                  </CardContent>
+                </Card>
+              </Box>
+
+              {/* Bottom text */}
+              <Typography
+                variant="body2"
+                color="text.secondary"
+                sx={{ textAlign: 'center', mt: 3, fontStyle: 'italic' }}
+              >
+                Or type your question below
+              </Typography>
+            </Box>
           </Box>
         ) : (
           chatMessages.map((message, index) => (

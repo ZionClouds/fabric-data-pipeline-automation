@@ -3,6 +3,7 @@ import { usePipeline } from '../contexts/PipelineContext';
 import { useAuth } from '../contexts/AuthContext';
 import { pipelineApi } from '../services/api';
 import NotebookViewer from './NotebookViewer';
+import ReactMarkdown from 'react-markdown';
 
 // API URL from env config (supports Docker runtime injection)
 const API_BASE_URL = window._env_?.REACT_APP_API_URL || process.env.REACT_APP_API_URL || 'http://localhost:8080';
@@ -574,26 +575,57 @@ const PipelinePreview = () => {
                 {selectedTab === 0 && (
                   <Box sx={{ p: 3 }}>
                     {generatedPipeline.reasoning ? (
-                      <Box sx={{ 
-                        backgroundColor: 'rgba(102, 126, 234, 0.03)', 
-                        borderRadius: 3, 
+                      <Box sx={{
+                        backgroundColor: 'rgba(102, 126, 234, 0.03)',
+                        borderRadius: 3,
                         p: 3,
                         border: '1px solid rgba(102, 126, 234, 0.1)',
                         boxShadow: '0 2px 12px rgba(102, 126, 234, 0.08)',
+                        '& h2': {
+                          fontSize: '1.5rem',
+                          fontWeight: 600,
+                          color: '#1f2937',
+                          marginTop: '1rem',
+                          marginBottom: '0.75rem'
+                        },
+                        '& h3': {
+                          fontSize: '1.2rem',
+                          fontWeight: 600,
+                          color: '#374151',
+                          marginTop: '1rem',
+                          marginBottom: '0.5rem'
+                        },
+                        '& p': {
+                          lineHeight: 1.7,
+                          fontSize: '0.9rem',
+                          color: '#6b7280',
+                          marginBottom: '0.75rem'
+                        },
+                        '& ul': {
+                          marginLeft: '1.5rem',
+                          marginBottom: '0.75rem'
+                        },
+                        '& li': {
+                          lineHeight: 1.6,
+                          fontSize: '0.9rem',
+                          color: '#6b7280',
+                          marginBottom: '0.5rem'
+                        },
+                        '& strong': {
+                          fontWeight: 600,
+                          color: '#1f2937'
+                        },
+                        '& code': {
+                          backgroundColor: 'rgba(102, 126, 234, 0.1)',
+                          padding: '0.2rem 0.4rem',
+                          borderRadius: '0.25rem',
+                          fontSize: '0.85rem',
+                          fontFamily: 'monospace'
+                        }
                       }}>
-                        <Typography 
-                          variant="body1" 
-                          color="text.secondary" 
-                          sx={{ 
-                            lineHeight: 1.7, 
-                            fontSize: '0.9rem',
-                            whiteSpace: 'pre-line',
-                            fontFamily: '"Segoe UI", Roboto, sans-serif',
-                            letterSpacing: '0.025em'
-                          }}
-                        >
+                        <ReactMarkdown>
                           {generatedPipeline.reasoning}
-                        </Typography>
+                        </ReactMarkdown>
                       </Box>
                     ) : (
                       <Box sx={{ textAlign: 'center', py: 6 }}>
@@ -663,19 +695,6 @@ const PipelinePreview = () => {
                               <Typography variant="subtitle2" sx={{ fontWeight: 600, fontSize: '0.85rem' }}>
                                 {activity.name}
                               </Typography>
-                              {isSpecialActivity && (
-                                <Chip
-                                  label="NEW"
-                                  size="small"
-                                  sx={{
-                                    height: 18,
-                                    fontSize: '0.65rem',
-                                    bgcolor: isNotification ? '#fbbf24' : '#34d399',
-                                    color: 'white',
-                                    fontWeight: 700
-                                  }}
-                                />
-                              )}
                             </Box>
                             <Typography variant="body2" color="text.secondary" sx={{ mb: 0.5, fontSize: '0.8rem' }}>
                               <strong>Type:</strong> {activity.type}
@@ -916,19 +935,6 @@ const PipelinePreview = () => {
                                   <Typography variant="subtitle2" sx={{ fontWeight: 600, fontSize: '0.85rem' }}>
                                     {activity.name}
                                   </Typography>
-                                  {isSpecialActivity && (
-                                    <Chip
-                                      label="NEW"
-                                      size="small"
-                                      sx={{
-                                        height: 18,
-                                        fontSize: '0.65rem',
-                                        bgcolor: isNotification ? '#fbbf24' : '#34d399',
-                                        color: 'white',
-                                        fontWeight: 700
-                                      }}
-                                    />
-                                  )}
                                 </Box>
                                 <Typography variant="body2" color="text.secondary" sx={{ mb: 0.5, fontSize: '0.8rem' }}>
                                   <strong>Type:</strong> {activity.type}
