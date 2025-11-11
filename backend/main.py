@@ -834,70 +834,10 @@ Which approach would you like to use?"""
             deployment_config["selected_option"] = option_selected
 
             if option_selected == 3:
-                # User selected Option 3 (Notebook) - Ask about PHI/PII
-                logger.info("Option 3 selected - asking about PHI/PII detection")
-                conv_context.set_pending_confirmation("confirm_phi_pii", {
-                    "workspace_id": deployment_config.get("workspace_id"),
-                    "config": deployment_config
-                })
+                # User selected Option 3 (Notebook) - Go directly to parameter collection
+                logger.info("Option 3 selected - starting parameter collection")
 
-                phi_pii_question = """Great choice! The Notebook approach gives you maximum flexibility.
-
-**Are we dealing with any PHI/PII data in these CSV files?**
-
-PHI/PII includes:
-- Social Security Numbers (SSN)
-- Member IDs
-- Dates of Birth (DOB)
-- Email addresses
-- Phone numbers
-- Protected Health Information"""
-
-                # Add natural delay for better UX
-                await asyncio.sleep(random.uniform(2, 3))
-
-                return ChatResponse(
-                    role="assistant",
-                    content=phi_pii_question,
-                    suggestions=["Yes, we have PHI/PII data", "No, just regular data"],
-                    pipeline_preview=None,
-                    shortcut_info=None,
-                    needs_confirmation=False,
-                    confirmation_action=None
-                )
-            else:
-                # User selected Option 1 or 2 - For now, show a message
-                # (You can expand this later for actual Copy Activity or Dataflow implementation)
-                conv_context.clear_pending_confirmation()
-
-                approach_name = "Copy Activity" if option_selected == 1 else "Dataflow Gen2"
-                response_message = f"""You've selected **Option {option_selected}: {approach_name}**.
-
-This approach is currently under development. For now, I recommend using **Option 3 (Notebook with PySpark)** which includes PHI/PII detection capabilities.
-
-Would you like to try Option 3 instead?"""
-
-                return ChatResponse(
-                    role="assistant",
-                    content=response_message,
-                    suggestions=["Yes, use option 3", "Tell me more about option 3"],
-                    pipeline_preview=None,
-                    shortcut_info=None,
-                    needs_confirmation=False,
-                    confirmation_action=None
-                )
-
-        # CHECK FOR PENDING PHI/PII CONFIRMATION
-        if pending and pending["action"] == "confirm_phi_pii":
-            # User is confirming whether they have PHI/PII data
-            deployment_config = pending.get("data", {}).get("config", {})
-            has_phi_pii = conv_context.is_user_confirming(user_message)
-
-            if has_phi_pii:
-                # User confirmed PHI/PII data - Start collecting parameters
-                logger.info("PHI/PII confirmed - starting parameter collection")
-
-                confirmation_message = f"""Perfect! I'll create a PHI/PII detection pipeline using:
+                confirmation_message = f"""Perfect! I'll create a data pipeline with PySpark transformation using:
 - **Workspace:** {deployment_config.get('workspace_id')}
 - **Lakehouse:** {deployment_config.get('lakehouse_name')}
 - **Warehouse:** {deployment_config.get('warehouse_name')}
@@ -929,25 +869,28 @@ Note: This should be the folder in your lakehouse where shortcuts to Azure Blob 
                     confirmation_action=None
                 )
             else:
-                # User said no PHI/PII - Show simplified pipeline (for future implementation)
-                logger.info("No PHI/PII - showing simplified pipeline")
+                # User selected Option 1 or 2 - For now, show a message
+                # (You can expand this later for actual Copy Activity or Dataflow implementation)
+                conv_context.clear_pending_confirmation()
 
-                no_phi_message = """Got it! For regular data without PHI/PII concerns, I can create a simpler pipeline.
+                approach_name = "Copy Activity" if option_selected == 1 else "Dataflow Gen2"
+                response_message = f"""You've selected **Option {option_selected}: {approach_name}**.
 
-However, the PHI/PII detection pipeline is currently the primary implementation. It can still process your data even if it doesn't contain sensitive information - the detection will simply find no matches.
+This approach is currently under development. For now, I recommend using **Option 3 (Notebook with PySpark)** which includes PHI/PII detection capabilities.
 
-Would you like to proceed with the full pipeline anyway?"""
+Would you like to try Option 3 instead?"""
 
-                # Keep the same pending state
                 return ChatResponse(
                     role="assistant",
-                    content=no_phi_message,
-                    suggestions=["Yes, proceed with full pipeline", "Tell me more"],
+                    content=response_message,
+                    suggestions=["Yes, use option 3", "Tell me more about option 3"],
                     pipeline_preview=None,
                     shortcut_info=None,
                     needs_confirmation=False,
                     confirmation_action=None
                 )
+
+        # PHI/PII confirmation step removed - going directly to parameter collection from option 3
 
         # Note: Deployment is now handled by the /api/pipelines/generate endpoint
         # The chat just collects parameters and redirects to Pipeline Preview
@@ -1316,6 +1259,41 @@ async def generate_pipeline(request: PipelineGenerateRequest, user: dict = Depen
                     ]
                 },
                 depends_on=["FilterNewFiles"]
+            ),
+            PipelineActivity(
+                name="Send PII Alert Notification",
+                type="Office365",
+                config={
+                    "description": "Send email notification if PII/PHI data was detected",
+                    "to": "data-team@company.com",
+                    "subject": "PII/PHI Detection Alert - Pipeline Execution Complete",
+                    "body": "The pipeline has completed processing. Please review the silver layer for detected PII/PHI patterns.",
+                    "importance": "High"
+                },
+                depends_on=["forEach"]
+            ),
+            PipelineActivity(
+                name="Load to OneLake Tables",
+                type="DataflowGen2",
+                config={
+                    "description": "Move processed data from silver layer to OneLake tables",
+                    "dataflowName": "Silver_to_OneLake",
+                    "source": {
+                        "type": "Lakehouse",
+                        "layer": "Silver",
+                        "folderPath": "Files/silver"
+                    },
+                    "destination": {
+                        "type": "Lakehouse",
+                        "tables": ["processed_claims", "pii_detections"]
+                    },
+                    "transformations": [
+                        "Remove duplicates",
+                        "Data type conversions",
+                        "Partition by date"
+                    ]
+                },
+                depends_on=["Send PII Alert Notification"]
             )
         ]
 
@@ -1379,7 +1357,7 @@ async def generate_pipeline(request: PipelineGenerateRequest, user: dict = Depen
             activities=activities,
             notebooks=[notebook],
             fabric_pipeline_json={},
-            reasoning=f"Pipeline preview ready:\n\nActivities:\n1. Get Metadata - Retrieves file list from lakehouse\n2. GetProcessedFileNames - Queries warehouse for already processed files\n3. SetEmptyFileArray - Initializes processed files variable\n4. ForEach1 - Builds list of processed file names\n5. FilterNewFiles - Filters out already processed files\n6. forEach - Processes each new file with PHI_PII_detection notebook\n\nConfiguration:\n- Workspace: jay-dev\n- Lakehouse: jay_dev_lakehouse\n- Warehouse: jay-dev-warehouse\n- Source: Files/claims\n- Output: Files/silver\n\nClick 'Deploy to Fabric Workspace' to create this pipeline."
+            reasoning=f"Pipeline preview ready:\n\nActivities:\n1. Get Metadata - Retrieves file list from lakehouse\n2. GetProcessedFileNames - Queries warehouse for already processed files\n3. SetEmptyFileArray - Initializes processed files variable\n4. ForEach1 - Builds list of processed file names\n5. FilterNewFiles - Filters out already processed files\n6. forEach - Processes each new file with PHI_PII_detection notebook\n7. Send PII Alert Notification - Sends email alert when PII/PHI is detected\n8. Load to OneLake Tables - Moves processed data from silver layer to OneLake tables using Dataflow Gen2\n\nConfiguration:\n- Workspace: jay-dev\n- Lakehouse: jay_dev_lakehouse\n- Warehouse: jay-dev-warehouse\n- Source: Files/claims\n- Output: Files/silver → OneLake Tables\n\nClick 'Deploy to Fabric Workspace' to create this pipeline."
         )
 
     except HTTPException:
