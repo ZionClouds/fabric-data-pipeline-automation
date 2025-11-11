@@ -46,6 +46,77 @@ jobs:
           flags: backend
           name: backend-coverage
 
+  SonarQubeAnalysis:
+    name: SonarQube Analysis
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Shallow clones should be disabled for better analysis
+
+      - name: SonarQube Scan
+        uses: sonarsource/sonarqube-scan-action@master
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+
+      - name: Fetch SonarQube Analysis Results
+        id: sonar-results
+        continue-on-error: true
+        run: |
+          # Wait for SonarQube to process the analysis
+          sleep 10
+
+          # Fetch project status from SonarQube API
+          SONAR_URL="${{ secrets.SONAR_HOST_URL }}"
+          PROJECT_KEY="fabric-data-pipeline-automation"
+
+          # Get quality gate status
+          QUALITY_GATE=$(curl -s -u "${{ secrets.SONAR_TOKEN }}:" \
+            "${SONAR_URL}/api/qualitygates/project_status?projectKey=${PROJECT_KEY}" \
+            | jq -r '.projectStatus.status // "UNKNOWN"')
+
+          # Get metrics
+          METRICS=$(curl -s -u "${{ secrets.SONAR_TOKEN }}:" \
+            "${SONAR_URL}/api/measures/component?component=${PROJECT_KEY}&metricKeys=bugs,vulnerabilities,code_smells,coverage,duplicated_lines_density,security_hotspots" \
+            | jq -r '.component.measures')
+
+          # Parse metrics
+          BUGS=$(echo "$METRICS" | jq -r '.[] | select(.metric=="bugs") | .value // "N/A"')
+          VULNERABILITIES=$(echo "$METRICS" | jq -r '.[] | select(.metric=="vulnerabilities") | .value // "N/A"')
+          CODE_SMELLS=$(echo "$METRICS" | jq -r '.[] | select(.metric=="code_smells") | .value // "N/A"')
+          COVERAGE=$(echo "$METRICS" | jq -r '.[] | select(.metric=="coverage") | .value // "N/A"')
+          DUPLICATIONS=$(echo "$METRICS" | jq -r '.[] | select(.metric=="duplicated_lines_density") | .value // "N/A"')
+          HOTSPOTS=$(echo "$METRICS" | jq -r '.[] | select(.metric=="security_hotspots") | .value // "N/A"')
+
+          # Store in environment for summary
+          echo "QUALITY_GATE=${QUALITY_GATE}" >> $GITHUB_ENV
+          echo "BUGS=${BUGS}" >> $GITHUB_ENV
+          echo "VULNERABILITIES=${VULNERABILITIES}" >> $GITHUB_ENV
+          echo "CODE_SMELLS=${CODE_SMELLS}" >> $GITHUB_ENV
+          echo "COVERAGE=${COVERAGE}" >> $GITHUB_ENV
+          echo "DUPLICATIONS=${DUPLICATIONS}" >> $GITHUB_ENV
+          echo "HOTSPOTS=${HOTSPOTS}" >> $GITHUB_ENV
+
+          # Create summary output
+          echo "## SonarQube Analysis Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Quality Gate Status:** ${QUALITY_GATE}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Metric | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Bugs | ${BUGS} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Vulnerabilities | ${VULNERABILITIES} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Code Smells | ${CODE_SMELLS} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Coverage | ${COVERAGE}% |" >> $GITHUB_STEP_SUMMARY
+          echo "| Duplications | ${DUPLICATIONS}% |" >> $GITHUB_STEP_SUMMARY
+          echo "| Security Hotspots | ${HOTSPOTS} |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "[View Detailed Report in SonarQube](${SONAR_URL}/dashboard?id=${PROJECT_KEY})" >> $GITHUB_STEP_SUMMARY
+
+          echo "✅ SonarQube analysis complete. Deployment will continue regardless of quality gate status."
+
   BackendDeployment:
     runs-on: ubuntu-latest
     if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev-jay')
@@ -311,7 +382,7 @@ jobs:
           curl -f https://$FRONTEND_URL/health || curl -f https://$FRONTEND_URL/ || echo "Frontend health check failed, but continuing..."
 
   DeploymentSummary:
-    needs: [BackendDeployment, FrontendDeployment]
+    needs: [SonarQubeAnalysis, BackendDeployment, FrontendDeployment]
     runs-on: ubuntu-latest
     if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev-jay')
     steps:
@@ -320,16 +391,48 @@ jobs:
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
-      - name: Get Deployment URLs
+      - name: Get Deployment URLs and Code Quality Summary
         run: |
           BACKEND_URL=$(az containerapp show --name fabric-pipeline-backend --resource-group ${{ secrets.RESOURCE_GROUP }} --query "properties.configuration.ingress.fqdn" -o tsv)
           FRONTEND_URL=$(az containerapp show --name fabric-pipeline-frontend --resource-group ${{ secrets.RESOURCE_GROUP }} --query "properties.configuration.ingress.fqdn" -o tsv)
 
+          # Fetch SonarQube metrics for summary
+          SONAR_URL="${{ secrets.SONAR_HOST_URL }}"
+          PROJECT_KEY="fabric-data-pipeline-automation"
+
+          # Get quality gate status
+          QUALITY_GATE=$(curl -s -u "${{ secrets.SONAR_TOKEN }}:" \
+            "${SONAR_URL}/api/qualitygates/project_status?projectKey=${PROJECT_KEY}" \
+            | jq -r '.projectStatus.status // "UNKNOWN"' || echo "N/A")
+
+          # Get key metrics
+          METRICS=$(curl -s -u "${{ secrets.SONAR_TOKEN }}:" \
+            "${SONAR_URL}/api/measures/component?component=${PROJECT_KEY}&metricKeys=bugs,vulnerabilities,code_smells,coverage" \
+            | jq -r '.component.measures' || echo "[]")
+
+          BUGS=$(echo "$METRICS" | jq -r '.[] | select(.metric=="bugs") | .value // "N/A"' || echo "N/A")
+          VULNERABILITIES=$(echo "$METRICS" | jq -r '.[] | select(.metric=="vulnerabilities") | .value // "N/A"' || echo "N/A")
+          CODE_SMELLS=$(echo "$METRICS" | jq -r '.[] | select(.metric=="code_smells") | .value // "N/A"' || echo "N/A")
+          COVERAGE=$(echo "$METRICS" | jq -r '.[] | select(.metric=="coverage") | .value // "N/A"' || echo "N/A")
+
           echo "=========================================="
-          echo "Deployment Complete!"
+          echo "  DEPLOYMENT COMPLETE"
           echo "=========================================="
+          echo ""
           echo "Backend URL:  https://$BACKEND_URL"
           echo "Frontend URL: https://$FRONTEND_URL"
+          echo ""
+          echo "=========================================="
+          echo "  CODE QUALITY SUMMARY"
+          echo "=========================================="
+          echo "Quality Gate: ${QUALITY_GATE}"
+          echo "Bugs:         ${BUGS}"
+          echo "Vulnerabilities: ${VULNERABILITIES}"
+          echo "Code Smells:  ${CODE_SMELLS}"
+          echo "Coverage:     ${COVERAGE}%"
+          echo ""
+          echo "View full report: ${SONAR_URL}/dashboard?id=${PROJECT_KEY}"
+          echo ""
           echo "=========================================="
           echo "Branch: ${{ github.ref_name }}"
           echo "Commit: ${{ github.sha }}"

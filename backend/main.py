@@ -2203,6 +2203,104 @@ async def delete_pipeline(job_id: str, user: dict = Depends(validate_token)):
         logger.error(f"Delete pipeline error: {error_msg}")
         raise HTTPException(status_code=500, detail=f"Failed to delete pipeline: {error_msg}")
 
+# Rename pipeline
+@app.put("/api/pipelines/{job_id}/rename")
+async def rename_pipeline(job_id: str, request: Dict[str, Any], user: dict = Depends(validate_token)):
+    """
+    Rename a pipeline in both database and Microsoft Fabric
+
+    This will:
+    1. Update the pipeline name in the database
+    2. Update the pipeline display name in Microsoft Fabric (if deployed)
+    """
+    try:
+        new_pipeline_name = request.get("new_pipeline_name")
+
+        if not new_pipeline_name or not new_pipeline_name.strip():
+            raise HTTPException(status_code=400, detail="New pipeline name is required")
+
+        # Clean the pipeline name
+        new_pipeline_name = new_pipeline_name.strip()
+
+        logger.info(f"Renaming pipeline job {job_id} to '{new_pipeline_name}' for user: {user['email']}")
+
+        # Get job from database
+        db_service = get_db_service()
+        job = db_service.get_job(job_id)
+
+        if not job:
+            raise HTTPException(status_code=404, detail="Pipeline job not found")
+
+        old_pipeline_name = job.get('pipeline_name', 'Unknown')
+        pipeline_id = job.get('pipeline_id')
+        workspace_id = job.get('workspace_id')
+
+        # Update pipeline name in Fabric if it's deployed
+        fabric_updated = False
+        if pipeline_id and workspace_id:
+            try:
+                logger.info(f"Updating pipeline name in Fabric workspace {workspace_id}")
+
+                # Get Fabric API token
+                fabric_svc = FabricAPIService()
+                token = await fabric_svc.get_access_token()
+
+                # Update pipeline display name in Fabric using REST API
+                update_url = f"https://api.fabric.microsoft.com/v1/workspaces/{workspace_id}/items/{pipeline_id}"
+
+                async with httpx.AsyncClient(timeout=30.0) as client:
+                    headers = {
+                        "Authorization": f"Bearer {token}",
+                        "Content-Type": "application/json"
+                    }
+
+                    payload = {
+                        "displayName": new_pipeline_name
+                    }
+
+                    response = await client.patch(update_url, headers=headers, json=payload)
+
+                    if response.status_code == 200:
+                        logger.info(f"[SUCCESS] Updated pipeline name in Fabric to '{new_pipeline_name}'")
+                        fabric_updated = True
+                    else:
+                        logger.warning(f"Failed to update pipeline name in Fabric: {response.status_code} - {response.text}")
+                        # Continue anyway to update in database
+
+            except Exception as e:
+                logger.error(f"Error updating pipeline name in Fabric: {str(e)}")
+                # Continue anyway to update in database
+
+        # Update pipeline name in database
+        db_service.update_job_status(
+            job_id=job_id,
+            pipeline_name=new_pipeline_name,
+            metadata={
+                'renamed_by': user['email'],
+                'renamed_at': str(datetime.utcnow()),
+                'old_name': old_pipeline_name
+            }
+        )
+
+        logger.info(f"[SUCCESS] Renamed pipeline job {job_id} from '{old_pipeline_name}' to '{new_pipeline_name}'")
+
+        return {
+            "success": True,
+            "message": f"Pipeline renamed from '{old_pipeline_name}' to '{new_pipeline_name}'",
+            "job_id": job_id,
+            "old_name": old_pipeline_name,
+            "new_name": new_pipeline_name,
+            "updated_in_fabric": fabric_updated,
+            "pipeline_id": pipeline_id
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        error_msg = str(e).encode('ascii', 'replace').decode('ascii')
+        logger.error(f"Rename pipeline error: {error_msg}")
+        raise HTTPException(status_code=500, detail=f"Failed to rename pipeline: {error_msg}")
+
 # List pipelines
 @app.get("/api/pipelines")
 async def list_pipelines(workspace_id: str, user: dict = Depends(validate_token)):

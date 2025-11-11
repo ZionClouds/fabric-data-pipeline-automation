@@ -1,0 +1,86 @@
+# =====================================================
+# SonarQube Ignore File
+# Files and directories to exclude from SonarQube analysis
+# =====================================================
+
+# Dependencies
+node_modules/
+venv/
+env/
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Build outputs
+build/
+dist/
+target/
+*.egg-info/
+.next/
+out/
+
+# Test coverage
+coverage/
+.coverage
+.pytest_cache/
+htmlcov/
+*.lcov
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Logs
+*.log
+logs/
+
+# Environment and secrets
+.env
+.env.local
+.env.*.local
+settings.py
+
+# Docker
+Dockerfile
+docker-compose.yml
+.dockerignore
+
+# CI/CD
+.github/
+.gitlab-ci.yml
+azure-pipelines.yml
+
+# Documentation (optional - uncomment if you want to exclude docs)
+# docs/
+# *.md
+
+# Frontend specific
+frontend/public/
+frontend/build/
+frontend/node_modules/
+frontend/.cache/
+frontend/package-lock.json
+frontend/yarn.lock
+
+# Backend specific
+backend/__pycache__/
+backend/venv/
+backend/.pytest_cache/
+backend/fabric_pipeline.db
+
+# Minified files
+*.min.js
+*.min.css
+*.bundle.js
+*.chunk.js
+
+# Generated files
+*.generated.js
+*.generated.ts
+*.generated.py

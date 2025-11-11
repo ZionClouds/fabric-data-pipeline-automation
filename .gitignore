@@ -52,6 +52,7 @@ package-lock.json
 # IDEs
 .vscode/
 .idea/
+.sonarlint/
 *.swp
 *.swo
 *~
