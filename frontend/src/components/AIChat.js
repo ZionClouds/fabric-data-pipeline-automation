@@ -16,13 +16,17 @@ import {
   CircularProgress,
   Fade,
   InputAdornment,
-  Alert
+  Alert,
+  Fab,
+  Tooltip
 } from '@mui/material';
 import {
   Send as SendIcon,
   SmartToy as SmartToyIcon,
   Person as PersonIcon,
-  AutoAwesome as AutoAwesomeIcon
+  AutoAwesome as AutoAwesomeIcon,
+  Visibility as VisibilityIcon,
+  RocketLaunch as RocketLaunchIcon
 } from '@mui/icons-material';
 
 // API URL from env config (supports Docker runtime injection)
@@ -43,7 +47,9 @@ const AIChat = () => {
     conversationId,
     setConversationId,
     currentJobId,
-    setCurrentJobId
+    setCurrentJobId,
+    setSelectedJobForPreview,
+    handleTabClick
 
   } = usePipeline();
   const { user } = useAuth();
@@ -221,6 +227,15 @@ const AIChat = () => {
     "I need to load CSV files from Blob Storage",
     "Create a pipeline with Bronze/Silver/Gold layers"
   ];
+
+  // Handle quick access to pipeline preview - same functionality as sidebar menu
+  const handlePreviewShortcut = () => {
+    // Use the same tab navigation logic as the sidebar menu
+    handleTabClick('preview');
+  };
+
+  // Check if preview shortcut should be shown
+  const shouldShowPreviewShortcut = chatMessages.length > 0 && selectedWorkspace;
 
   return (
     <Box
@@ -444,6 +459,106 @@ const AIChat = () => {
                   </Card>
                 ))}
               </Box>
+              
+              {/* Pipeline Preview Quick Action - Only show when there are chat messages */}
+              {chatMessages.length > 0 && (
+                <>
+                  <Typography 
+                    variant="subtitle2" 
+                    gutterBottom 
+                    color="text.primary" 
+                    sx={{ 
+                      mb: 2,
+                      mt: 3,
+                      fontWeight: 600,
+                      fontSize: '0.95rem',
+                      color: '#374151',
+                    }}
+                  >
+                    🚀 Quick Actions
+                  </Typography>
+                  
+                  <Box sx={{ 
+                    display: 'flex',
+                    justifyContent: 'center',
+                    maxWidth: 520,
+                    mx: 'auto',
+                  }}>
+                    <Card
+                      onClick={handlePreviewShortcut}
+                      sx={{
+                        cursor: 'pointer',
+                        transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+                        borderRadius: 2,
+                        border: '1.5px solid rgba(102, 126, 234, 0.2)',
+                        bgcolor: 'rgba(102, 126, 234, 0.08)',
+                        backdropFilter: 'blur(20px)',
+                        position: 'relative',
+                        overflow: 'hidden',
+                        minHeight: '52px',
+                        width: '100%',
+                        maxWidth: 250,
+                        '&::before': {
+                          content: '""',
+                          position: 'absolute',
+                          top: 0,
+                          left: 0,
+                          right: 0,
+                          height: '2px',
+                          background: 'linear-gradient(90deg, #667eea 0%, #764ba2 100%)',
+                          transform: 'translateX(-100%)',
+                          transition: 'transform 0.3s ease',
+                        },
+                        '&:hover': {
+                          transform: 'translateY(-2px) scale(1.02)',
+                          boxShadow: '0 8px 24px rgba(102, 126, 234, 0.2)',
+                          borderColor: 'rgba(102, 126, 234, 0.35)',
+                          bgcolor: 'rgba(102, 126, 234, 0.12)',
+                          '&::before': {
+                            transform: 'translateX(0)',
+                          },
+                        },
+                        '&:active': {
+                          transform: 'translateY(-1px) scale(1.01)',
+                        },
+                      }}
+                    >
+                      <CardContent sx={{ p: 1.5, py: 1.25, '&:last-child': { pb: 1.25 } }}>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, justifyContent: 'center' }}>
+                          <Box 
+                            sx={{ 
+                              width: 32,
+                              height: 32,
+                              borderRadius: 1.5,
+                              background: 'linear-gradient(135deg, rgba(102, 126, 234, 0.15) 0%, rgba(118, 75, 162, 0.15) 100%)',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              flexShrink: 0,
+                            }}
+                          >
+                            <RocketLaunchIcon sx={{ fontSize: 18, color: '#667eea' }} />
+                          </Box>
+                          <Box sx={{ flex: 1, textAlign: 'left' }}>
+                            <Typography
+                              variant="body2"
+                              sx={{
+                                fontSize: '0.85rem',
+                                lineHeight: 1.3,
+                                color: 'text.primary',
+                                fontWeight: 600,
+                                letterSpacing: '-0.005em',
+                              }}
+                            >
+                              View Pipeline Preview
+                            </Typography>
+                          </Box>
+                        </Box>
+                      </CardContent>
+                    </Card>
+                  </Box>
+                </>
+              )}
               
               <Typography 
                 variant="caption" 
@@ -966,6 +1081,41 @@ const AIChat = () => {
           </Box>
         </Box>
       </Paper>
+
+      {/* Pipeline Preview Shortcut FAB */}
+      {shouldShowPreviewShortcut && (
+        <Tooltip title="View Pipeline Preview" arrow placement="left">
+          <Fab
+            color="primary"
+            size="medium"
+            onClick={handlePreviewShortcut}
+            sx={{
+              position: 'fixed',
+              bottom: 120,
+              right: 24,
+              background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+              boxShadow: '0 8px 32px rgba(102, 126, 234, 0.3)',
+              backdropFilter: 'blur(10px)',
+              border: '1px solid rgba(255, 255, 255, 0.2)',
+              transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+              zIndex: 1000,
+              '&:hover': {
+                transform: 'translateY(-2px) scale(1.05)',
+                boxShadow: '0 12px 40px rgba(102, 126, 234, 0.4)',
+                background: 'linear-gradient(135deg, #5a67d8 0%, #6b46c1 100%)',
+              },
+              '&:active': {
+                transform: 'translateY(0) scale(1.02)',
+              },
+              '& .MuiFab-root': {
+                minHeight: 48,
+              },
+            }}
+          >
+            <VisibilityIcon sx={{ fontSize: 24, color: 'white' }} />
+          </Fab>
+        </Tooltip>
+      )}
     </Box>
   );
 };

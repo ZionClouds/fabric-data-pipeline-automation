@@ -36,8 +36,13 @@ import logo from '../assets/images/zionai.png';
 
 const PipelineBuilderLayout = () => {
   const { user, logout } = useAuth();
-  const { selectedWorkspace, selectedJobForPreview } = usePipeline();
-  const [activeTab, setActiveTab] = useState('chat');
+  const { 
+    selectedWorkspace, 
+    selectedJobForPreview, 
+    activeTab, 
+    setActiveTab, 
+    handleTabClick 
+  } = usePipeline();
   const [workspaces, setWorkspaces] = useState([]);
   const [isLoadingWorkspaces, setIsLoadingWorkspaces] = useState(true);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -50,9 +55,9 @@ const PipelineBuilderLayout = () => {
   // Auto-switch to preview tab when a job is selected for preview
   useEffect(() => {
     if (selectedJobForPreview) {
-      setActiveTab('preview');
+      handleTabClick('preview');
     }
-  }, [selectedJobForPreview]);
+  }, [selectedJobForPreview, handleTabClick]);
 
   const loadWorkspaces = async () => {
     try {
@@ -70,13 +75,13 @@ const PipelineBuilderLayout = () => {
   };
 
   // Handle tab navigation with workspace validation
-  const handleTabClick = (tab) => {
+  const handleTabClickWithValidation = (tab) => {
     if (!selectedWorkspace) {
       // Show alert if no workspace is selected
       setShowWorkspaceAlert(true);
       return;
     }
-    setActiveTab(tab);
+    handleTabClick(tab);
   };
 
   // Close alert
@@ -93,16 +98,35 @@ const PipelineBuilderLayout = () => {
       <Drawer
         variant="permanent"
         sx={{
-          width: sidebarCollapsed ? 70 : 280,
+          width: sidebarCollapsed ? 70 : 320,
           flexShrink: 0,
           '& .MuiDrawer-paper': {
-            width: sidebarCollapsed ? 70 : 280,
+            width: sidebarCollapsed ? 70 : 320,
             boxSizing: 'border-box',
             background: 'linear-gradient(135deg, hsl(210 100% 45%), hsl(175 70% 50%))',
             color: 'white',
             border: 'none',
             boxShadow: '2px 0 10px rgba(0, 0, 0, 0.1)',
             transition: 'width 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+            overflow: 'hidden',
+            display: 'flex',
+            flexDirection: 'column',
+            '&::-webkit-scrollbar': {
+              width: '6px',
+            },
+            '&::-webkit-scrollbar-track': {
+              background: 'rgba(255, 255, 255, 0.1)',
+              borderRadius: '3px',
+            },
+            '&::-webkit-scrollbar-thumb': {
+              background: 'rgba(255, 255, 255, 0.3)',
+              borderRadius: '3px',
+              '&:hover': {
+                background: 'rgba(255, 255, 255, 0.4)',
+              },
+            },
+            scrollbarWidth: 'thin',
+            scrollbarColor: 'rgba(255, 255, 255, 0.3) rgba(255, 255, 255, 0.1)',
           },
         }}
       >
@@ -171,6 +195,7 @@ const PipelineBuilderLayout = () => {
                     fontWeight: 400,
                     lineHeight: 1.3,
                     letterSpacing: '0.02em',
+                    whiteSpace: 'nowrap',
                   }}
                 >
                   AI-Powered Data Pipelines
@@ -213,209 +238,285 @@ const PipelineBuilderLayout = () => {
         {!sidebarCollapsed && (
           <Box
             sx={{
-              p: '16px 20px',
               borderBottom: '1px solid rgba(255, 255, 255, 0.1)',
+              flexShrink: 0,
+              maxHeight: '40%',
+              overflow: 'hidden',
+              display: 'flex',
+              flexDirection: 'column',
             }}
           >
-            <WorkspaceSelector
-              workspaces={workspaces}
-              isLoading={isLoadingWorkspaces}
-            />
+            <Box
+              sx={{
+                p: '16px 20px',
+                overflowY: 'auto',
+                flexGrow: 1,
+                '&::-webkit-scrollbar': {
+                  width: '6px',
+                },
+                '&::-webkit-scrollbar-track': {
+                  background: 'rgba(255, 255, 255, 0.1)',
+                  borderRadius: '3px',
+                },
+                '&::-webkit-scrollbar-thumb': {
+                  background: 'rgba(255, 255, 255, 0.3)',
+                  borderRadius: '3px',
+                  '&:hover': {
+                    background: 'rgba(255, 255, 255, 0.4)',
+                  },
+                },
+                scrollbarWidth: 'thin',
+                scrollbarColor: 'rgba(255, 255, 255, 0.3) rgba(255, 255, 255, 0.1)',
+              }}
+            >
+              <WorkspaceSelector
+                workspaces={workspaces}
+                isLoading={isLoadingWorkspaces}
+              />
 
-            {/* Lakehouse and Warehouse Selectors */}
-            <Box sx={{ mt: 2 }}>
-              <LakehouseWarehouseSelector />
+              {/* Lakehouse and Warehouse Selectors */}
+              <Box sx={{ mt: 2 }}>
+                <LakehouseWarehouseSelector />
+              </Box>
             </Box>
           </Box>
         )}
 
         {/* Navigation Menu */}
-        <List sx={{ flex: 1, pt: 3 }}>
-          <ListItem disablePadding>
-            <ListItemButton
-              onClick={() => handleTabClick('chat')}
-              selected={activeTab === 'chat'}
-              sx={{
-                color: 'rgba(255, 255, 255, 0.8)',
-                '&:hover': {
-                  bgcolor: 'rgba(255, 255, 255, 0.1)',
-                  color: 'white',
-                },
-                '&.Mui-selected': {
-                  bgcolor: 'rgba(255, 255, 255, 0.15)',
-                  color: 'white',
-                  borderLeft: '3px solid white',
-                  '&:hover': {
-                    bgcolor: 'rgba(255, 255, 255, 0.15)',
-                  },
-                },
-                transition: 'all 0.2s',
-              }}
-            >
-              <ListItemIcon sx={{ color: 'inherit', minWidth: sidebarCollapsed ? 0 : 40 }}>
-                <ChatIcon />
-              </ListItemIcon>
-              {!sidebarCollapsed && (
-                <ListItemText 
-                  primary="AI Chat" 
-                  primaryTypographyProps={{
-                    fontSize: '14px',
-                    fontWeight: 500,
-                  }}
-                />
-              )}
-            </ListItemButton>
-          </ListItem>
-
-          <ListItem disablePadding>
-            <ListItemButton
-              onClick={() => handleTabClick('preview')}
-              selected={activeTab === 'preview'}
-              sx={{
-                color: 'rgba(255, 255, 255, 0.8)',
-                '&:hover': {
-                  bgcolor: 'rgba(255, 255, 255, 0.1)',
-                  color: 'white',
-                },
-                '&.Mui-selected': {
-                  bgcolor: 'rgba(255, 255, 255, 0.15)',
-                  color: 'white',
-                  borderLeft: '3px solid white',
-                  '&:hover': {
-                    bgcolor: 'rgba(255, 255, 255, 0.15)',
-                  },
-                },
-                transition: 'all 0.2s',
-              }}
-            >
-              <ListItemIcon sx={{ color: 'inherit', minWidth: sidebarCollapsed ? 0 : 40 }}>
-                <AssessmentIcon />
-              </ListItemIcon>
-              {!sidebarCollapsed && (
-                <ListItemText 
-                  primary="Pipeline Preview" 
-                  primaryTypographyProps={{
-                    fontSize: '14px',
-                    fontWeight: 500,
-                  }}
-                />
-              )}
-            </ListItemButton>
-          </ListItem>
-
-          <ListItem disablePadding>
-            <ListItemButton
-              onClick={() => handleTabClick('pipelines')}
-              selected={activeTab === 'pipelines'}
-              sx={{
-                color: 'rgba(255, 255, 255, 0.8)',
-                '&:hover': {
-                  bgcolor: 'rgba(255, 255, 255, 0.1)',
-                  color: 'white',
-                },
-                '&.Mui-selected': {
-                  bgcolor: 'rgba(255, 255, 255, 0.15)',
-                  color: 'white',
-                  borderLeft: '3px solid white',
-                  '&:hover': {
-                    bgcolor: 'rgba(255, 255, 255, 0.15)',
-                  },
-                },
-                transition: 'all 0.2s',
-              }}
-            >
-              <ListItemIcon sx={{ color: 'inherit', minWidth: sidebarCollapsed ? 0 : 40 }}>
-                <FolderIcon />
-              </ListItemIcon>
-              {!sidebarCollapsed && (
-                <ListItemText 
-                  primary="My Pipelines" 
-                  primaryTypographyProps={{
-                    fontSize: '14px',
-                    fontWeight: 500,
-                  }}
-                />
-              )}
-            </ListItemButton>
-          </ListItem>
-        </List>
-
-        {/* Sidebar Footer */}
-        <Box
-          sx={{
-            p: '16px 20px 24px',
-            borderTop: '1px solid rgba(255, 255, 255, 0.1)',
+        <Box 
+          sx={{ 
+            flex: 1, 
+            display: 'flex', 
+            flexDirection: 'column',
+            overflow: 'hidden',
+            minHeight: 0, // Important for flex containers with scrollable children
           }}
         >
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-            <Avatar
-              sx={{
-                width: 28,
-                height: 28,
-                bgcolor: 'rgba(255, 255, 255, 0.2)',
-                fontSize: '12px',
-                flexShrink: 0,
-                border: '1px solid rgba(255, 255, 255, 0.3)',
-              }}
-            >
-              👤
-            </Avatar>
-            {!sidebarCollapsed && (
-              <Box sx={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <Box sx={{ flex: 1, minWidth: 0, mr: 1 }}>
-                  <Typography
-                    variant="body2"
-                    sx={{
-                      fontSize: '13px',
-                      fontWeight: 500,
+          <Box 
+            sx={{ 
+              flex: 1,
+              overflowY: 'auto',
+              minHeight: 0, // Important for proper flex behavior
+              '&::-webkit-scrollbar': {
+                width: '6px',
+              },
+              '&::-webkit-scrollbar-track': {
+                background: 'rgba(255, 255, 255, 0.1)',
+                borderRadius: '3px',
+              },
+              '&::-webkit-scrollbar-thumb': {
+                background: 'rgba(255, 255, 255, 0.3)',
+                borderRadius: '3px',
+                '&:hover': {
+                  background: 'rgba(255, 255, 255, 0.4)',
+                },
+              },
+              scrollbarWidth: 'thin',
+              scrollbarColor: 'rgba(255, 255, 255, 0.3) rgba(255, 255, 255, 0.1)',
+            }}
+          >
+            <List sx={{ pt: 2, pb: 1 }}>
+              <ListItem disablePadding>
+                <ListItemButton
+                  onClick={() => handleTabClickWithValidation('chat')}
+                  selected={activeTab === 'chat'}
+                  sx={{
+                    mx: 1,
+                    borderRadius: 2,
+                    color: 'rgba(255, 255, 255, 0.8)',
+                    transition: 'all 0.2s',
+                    '&:hover': {
+                      bgcolor: 'rgba(255, 255, 255, 0.1)',
                       color: 'white',
-                      mb: 0.25,
-                      overflow: 'hidden',
-                      textOverflow: 'ellipsis',
-                      whiteSpace: 'nowrap',
-                      lineHeight: 1.2,
-                    }}
-                  >
-                    {user?.name || 'User'}
-                  </Typography>
-                  <Tooltip title={user?.email || 'No email'} placement="top">
+                      transform: 'translateX(4px)',
+                    },
+                    '&.Mui-selected': {
+                      bgcolor: 'rgba(255, 255, 255, 0.15)',
+                      color: 'white',
+                      transform: 'translateX(8px)',
+                      boxShadow: '0 4px 12px rgba(0, 0, 0, 0.15)',
+                      '&:hover': {
+                        bgcolor: 'rgba(255, 255, 255, 0.2)',
+                      },
+                    },
+                  }}
+                >
+                  <ListItemIcon sx={{ color: 'inherit', minWidth: sidebarCollapsed ? 0 : 40 }}>
+                    <ChatIcon />
+                  </ListItemIcon>
+                  {!sidebarCollapsed && (
+                    <ListItemText 
+                      primary="AI Chat" 
+                      primaryTypographyProps={{
+                        fontSize: '14px',
+                        fontWeight: 500,
+                      }}
+                    />
+                  )}
+                </ListItemButton>
+              </ListItem>
+
+              <ListItem disablePadding>
+                <ListItemButton
+                  onClick={() => handleTabClickWithValidation('preview')}
+                  selected={activeTab === 'preview'}
+                  sx={{
+                    mx: 1,
+                    borderRadius: 2,
+                    color: 'rgba(255, 255, 255, 0.8)',
+                    transition: 'all 0.2s',
+                    '&:hover': {
+                      bgcolor: 'rgba(255, 255, 255, 0.1)',
+                      color: 'white',
+                      transform: 'translateX(4px)',
+                    },
+                    '&.Mui-selected': {
+                      bgcolor: 'rgba(255, 255, 255, 0.15)',
+                      color: 'white',
+                      transform: 'translateX(8px)',
+                      boxShadow: '0 4px 12px rgba(0, 0, 0, 0.15)',
+                      '&:hover': {
+                        bgcolor: 'rgba(255, 255, 255, 0.2)',
+                      },
+                    },
+                  }}
+                >
+                  <ListItemIcon sx={{ color: 'inherit', minWidth: sidebarCollapsed ? 0 : 40 }}>
+                    <AssessmentIcon />
+                  </ListItemIcon>
+                  {!sidebarCollapsed && (
+                    <ListItemText 
+                      primary="Pipeline Preview" 
+                      primaryTypographyProps={{
+                        fontSize: '14px',
+                        fontWeight: 500,
+                      }}
+                    />
+                  )}
+                </ListItemButton>
+              </ListItem>
+
+              <ListItem disablePadding>
+                <ListItemButton
+                  onClick={() => handleTabClickWithValidation('pipelines')}
+                  selected={activeTab === 'pipelines'}
+                  sx={{
+                    mx: 1,
+                    borderRadius: 2,
+                    color: 'rgba(255, 255, 255, 0.8)',
+                    transition: 'all 0.2s',
+                    '&:hover': {
+                      bgcolor: 'rgba(255, 255, 255, 0.1)',
+                      color: 'white',
+                      transform: 'translateX(4px)',
+                    },
+                    '&.Mui-selected': {
+                      bgcolor: 'rgba(255, 255, 255, 0.15)',
+                      color: 'white',
+                      transform: 'translateX(8px)',
+                      boxShadow: '0 4px 12px rgba(0, 0, 0, 0.15)',
+                      '&:hover': {
+                        bgcolor: 'rgba(255, 255, 255, 0.2)',
+                      },
+                    },
+                  }}
+                >
+                  <ListItemIcon sx={{ color: 'inherit', minWidth: sidebarCollapsed ? 0 : 40 }}>
+                    <FolderIcon />
+                  </ListItemIcon>
+                  {!sidebarCollapsed && (
+                    <ListItemText 
+                      primary="My Pipelines" 
+                      primaryTypographyProps={{
+                        fontSize: '14px',
+                        fontWeight: 500,
+                      }}
+                    />
+                  )}
+                </ListItemButton>
+              </ListItem>
+            </List>
+          </Box>
+
+          {/* Sidebar Footer - Fixed at bottom */}
+          <Box
+            sx={{
+              p: '16px 20px 24px',
+              borderTop: '1px solid rgba(255, 255, 255, 0.1)',
+              flexShrink: 0,
+              mt: 'auto',
+            }}
+          >
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              <Avatar
+                sx={{
+                  width: 28,
+                  height: 28,
+                  bgcolor: 'rgba(255, 255, 255, 0.2)',
+                  fontSize: '12px',
+                  flexShrink: 0,
+                  border: '1px solid rgba(255, 255, 255, 0.3)',
+                }}
+              >
+                👤
+              </Avatar>
+              {!sidebarCollapsed && (
+                <Box sx={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <Box sx={{ flex: 1, minWidth: 0, mr: 1 }}>
                     <Typography
-                      variant="caption"
+                      variant="body2"
                       sx={{
-                        fontSize: '11px',
-                        color: 'rgba(255, 255, 255, 0.7)',
+                        fontSize: '13px',
+                        fontWeight: 500,
+                        color: 'white',
+                        mb: 0.25,
                         overflow: 'hidden',
                         textOverflow: 'ellipsis',
                         whiteSpace: 'nowrap',
-                        display: 'block',
                         lineHeight: 1.2,
-                        cursor: 'help',
                       }}
                     >
-                      {user?.email || 'No email'}
+                      {user?.name || 'User'}
                     </Typography>
+                    <Tooltip title={user?.email || 'No email'} placement="top">
+                      <Typography
+                        variant="caption"
+                        sx={{
+                          fontSize: '11px',
+                          color: 'rgba(255, 255, 255, 0.7)',
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          whiteSpace: 'nowrap',
+                          display: 'block',
+                          lineHeight: 1.2,
+                          cursor: 'help',
+                        }}
+                      >
+                        {user?.email || 'No email'}
+                      </Typography>
+                    </Tooltip>
+                  </Box>
+                  <Tooltip title="Logout" placement="top">
+                    <IconButton
+                      onClick={logout}
+                      sx={{
+                        color: 'rgba(255, 255, 255, 0.7)',
+                        width: 32,
+                        height: 32,
+                        flexShrink: 0,
+                        '&:hover': {
+                          color: 'white',
+                          bgcolor: 'rgba(255, 255, 255, 0.1)',
+                        },
+                      }}
+                      size="small"
+                    >
+                      <LogoutIcon fontSize="medium" />
+                    </IconButton>
                   </Tooltip>
                 </Box>
-                <Tooltip title="Logout" placement="top">
-                  <IconButton
-                    onClick={logout}
-                    sx={{
-                      color: 'rgba(255, 255, 255, 0.7)',
-                      width: 32,
-                      height: 32,
-                      flexShrink: 0,
-                      '&:hover': {
-                        color: 'white',
-                        bgcolor: 'rgba(255, 255, 255, 0.1)',
-                      },
-                    }}
-                    size="small"
-                  >
-                    <LogoutIcon fontSize="medium" />
-                  </IconButton>
-                </Tooltip>
-              </Box>
-            )}
+              )}
+            </Box>
           </Box>
         </Box>
       </Drawer>
