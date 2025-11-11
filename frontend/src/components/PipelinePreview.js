@@ -678,7 +678,8 @@ const PipelinePreview = () => {
                                   </Box>
                                 )}
                               </Paper>
-                            ))}
+                              );
+                            })}
                           </Box>
                         ) : (
                           <Box sx={{ textAlign: 'center', py: 3 }}>
