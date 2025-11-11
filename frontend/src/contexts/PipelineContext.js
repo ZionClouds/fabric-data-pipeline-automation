@@ -12,6 +12,7 @@ export const PipelineProvider = ({ children }) => {
   const [currentJobId, setCurrentJobId] = useState(null);
   const [selectedJobForPreview, setSelectedJobForPreview] = useState(null);
   const [refreshPipelineList, setRefreshPipelineList] = useState(0);
+  const [activeTab, setActiveTab] = useState('chat');
   const [pipelineConfig, setPipelineConfig] = useState({
     source_type: null,
     tables: [],
@@ -82,6 +83,11 @@ export const PipelineProvider = ({ children }) => {
     setRefreshPipelineList(prev => prev + 1);
   };
 
+  // Handle tab navigation
+  const handleTabClick = (tab) => {
+    setActiveTab(tab);
+  };
+
   return (
     <PipelineContext.Provider
       value={{
@@ -107,6 +113,9 @@ export const PipelineProvider = ({ children }) => {
         pipelineConfig,
         updatePipelineConfig,
         resetPipeline,
+        activeTab,
+        setActiveTab,
+        handleTabClick,
       }}
     >
       {children}

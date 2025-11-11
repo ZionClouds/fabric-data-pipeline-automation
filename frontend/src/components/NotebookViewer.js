@@ -109,38 +109,8 @@ const NotebookViewer = ({ notebook, onClose }) => {
     setIsFullscreen(!isFullscreen);
   };
 
-  // Parse notebook code into cells (simple parsing for demo)
-  const parseCells = (code) => {
-    if (!code) return [];
-    
-    // Split by common cell separators or just treat as one cell
-    const lines = code.split('\n');
-    const cells = [];
-    let currentCell = { type: 'code', content: '', language: 'python' };
-    
-    for (const line of lines) {
-      // Simple markdown detection
-      if (line.trim().startsWith('# ') && currentCell.content.trim()) {
-        cells.push(currentCell);
-        currentCell = { type: 'markdown', content: line.replace('# ', ''), language: 'markdown' };
-      } else if (line.trim().startsWith('"""') || line.trim().startsWith("'''")) {
-        if (currentCell.content.trim()) {
-          cells.push(currentCell);
-        }
-        currentCell = { type: 'markdown', content: line.replace(/['"]/g, ''), language: 'markdown' };
-      } else {
-        currentCell.content += line + '\n';
-      }
-    }
-    
-    if (currentCell.content.trim()) {
-      cells.push(currentCell);
-    }
-    
-    return cells.length > 0 ? cells : [{ type: 'code', content: code, language: 'python' }];
-  };
-
-  const cells = parseCells(notebook.code);
+  // Display code as a single block
+  const displayCode = notebook.code || '';
 
   return (
     <Dialog
@@ -290,156 +260,144 @@ const NotebookViewer = ({ notebook, onClose }) => {
           )}
 
           <Box sx={{ p: 2, pt: notebook.description ? 0 : 2 }}>
-            {cells.map((cell, index) => (
-              <Paper
-                key={index}
-                elevation={0}
+            <Paper
+              elevation={0}
+              sx={{
+                mb: 2,
+                borderRadius: 2,
+                border: '1px solid rgba(102, 126, 234, 0.08)',
+                overflow: 'hidden',
+                bgcolor: 'white',
+                transition: 'all 0.2s ease-in-out',
+                '&:hover': {
+                  boxShadow: '0 4px 12px rgba(102, 126, 234, 0.1)',
+                  transform: 'translateY(-1px)',
+                },
+              }}
+            >
+              {/* Header */}
+              <Box
                 sx={{
-                  mb: 2,
-                  borderRadius: 2,
-                  border: '1px solid rgba(102, 126, 234, 0.08)',
-                  overflow: 'hidden',
-                  bgcolor: 'white',
-                  transition: 'all 0.2s ease-in-out',
-                  '&:hover': {
-                    boxShadow: '0 4px 12px rgba(102, 126, 234, 0.1)',
-                    transform: 'translateY(-1px)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  px: 2,
+                  py: 1,
+                  bgcolor: 'rgba(59, 130, 246, 0.05)',
+                  borderBottom: '1px solid rgba(0,0,0,0.05)',
+                }}
+              >
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <Avatar
+                    sx={{
+                      width: 20,
+                      height: 20,
+                      bgcolor: '#3b82f6',
+                    }}
+                  >
+                    <Typography sx={{ fontSize: '0.65rem', fontWeight: 'bold', color: 'white' }}>
+                      C
+                    </Typography>
+                  </Avatar>
+                  <Typography variant="caption" sx={{ fontWeight: 600, fontSize: '0.75rem' }}>
+                    Notebook Code
+                  </Typography>
+                </Box>
+                
+                <Tooltip title={copiedIndex === 'notebook' ? "Copied!" : "Copy Code"}>
+                  <IconButton
+                    onClick={() => handleCopyCode(displayCode, 'notebook')}
+                    size="small"
+                    sx={{
+                      color: copiedIndex === 'notebook' ? 'success.main' : 'text.secondary',
+                      '&:hover': { bgcolor: 'rgba(102, 126, 234, 0.1)' },
+                      transition: 'all 0.2s ease-in-out',
+                    }}
+                  >
+                    <ContentCopyIcon sx={{ fontSize: 14 }} />
+                  </IconButton>
+                </Tooltip>
+              </Box>
+
+              {/* Code Content */}
+              <Box
+                sx={{
+                  bgcolor: '#1e1e1e',
+                  color: '#d4d4d4',
+                  fontFamily: '"Fira Code", "Monaco", "Menlo", "Consolas", monospace',
+                  fontSize: '0.875rem',
+                  lineHeight: 1.5,
+                  maxHeight: '60vh',
+                  overflow: 'auto',
+                  position: 'relative',
+                  '&::-webkit-scrollbar': {
+                    width: '8px',
+                    height: '8px',
+                  },
+                  '&::-webkit-scrollbar-track': {
+                    background: '#2d2d2d',
+                  },
+                  '&::-webkit-scrollbar-thumb': {
+                    background: '#555',
+                    borderRadius: '4px',
+                    '&:hover': {
+                      background: '#666',
+                    },
                   },
                 }}
               >
-                {/* Cell Header */}
                 <Box
+                  component="pre"
                   sx={{
+                    margin: 0,
+                    padding: '16px',
+                    whiteSpace: 'pre-wrap',
+                    wordBreak: 'break-word',
                     display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    px: 2,
-                    py: 1,
-                    bgcolor: cell.type === 'markdown' ? 'rgba(139, 92, 246, 0.05)' : 'rgba(59, 130, 246, 0.05)',
-                    borderBottom: '1px solid rgba(0,0,0,0.05)',
+                    alignItems: 'flex-start',
+                    gap: 2,
                   }}
                 >
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                    <Avatar
-                      sx={{
-                        width: 20,
-                        height: 20,
-                        bgcolor: cell.type === 'markdown' ? '#8b5cf6' : '#3b82f6',
-                      }}
-                    >
-                      <Typography sx={{ fontSize: '0.65rem', fontWeight: 'bold', color: 'white' }}>
-                        {cell.type === 'markdown' ? 'M' : 'C'}
-                      </Typography>
-                    </Avatar>
-                    <Typography variant="caption" sx={{ fontWeight: 600, fontSize: '0.75rem' }}>
-                      {cell.type === 'markdown' ? 'Markdown' : 'Code'} Cell {index + 1}
-                    </Typography>
+                  {/* Line Numbers */}
+                  <Box
+                    sx={{
+                      color: '#858585',
+                      fontSize: '0.8rem',
+                      textAlign: 'right',
+                      minWidth: '3em',
+                      paddingRight: '1em',
+                      borderRight: '1px solid #444',
+                      userSelect: 'none',
+                      flexShrink: 0,
+                    }}
+                  >
+                    {displayCode.split('\n').map((_, lineIndex) => (
+                      <Box key={lineIndex} sx={{ lineHeight: 1.5 }}>
+                        {lineIndex + 1}
+                      </Box>
+                    ))}
                   </Box>
                   
-                  <Tooltip title={copiedIndex === index ? "Copied!" : "Copy Cell"}>
-                    <IconButton
-                      onClick={() => handleCopyCode(cell.content, index)}
-                      size="small"
-                      sx={{
-                        color: copiedIndex === index ? 'success.main' : 'text.secondary',
-                        '&:hover': { bgcolor: 'rgba(102, 126, 234, 0.1)' },
-                        transition: 'all 0.2s ease-in-out',
-                      }}
-                    >
-                      <ContentCopyIcon sx={{ fontSize: 14 }} />
-                    </IconButton>
-                  </Tooltip>
-                </Box>
-
-                {/* Cell Content */}
-                <Box sx={{ position: 'relative' }}>
-                  {cell.type === 'markdown' ? (
-                    <Box sx={{ p: 2 }}>
-                      <Typography variant="body2" sx={{ lineHeight: 1.6 }}>
-                        {cell.content.trim()}
-                      </Typography>
+                  {/* Code Content */}
+                  <Box
+                    component="code"
+                    sx={{
+                      flex: 1,
+                      color: 'inherit',
+                      fontFamily: 'inherit',
+                      fontSize: 'inherit',
+                      lineHeight: 'inherit',
+                      whiteSpace: 'pre-wrap',
+                      wordBreak: 'break-word',
+                    }}
+                  >
+                    <Box sx={{ fontFamily: 'inherit' }}>
+                      {highlightPythonCode(displayCode)}
                     </Box>
-                  ) : (
-                    <Box
-                      sx={{
-                        bgcolor: '#1e1e1e',
-                        color: '#d4d4d4',
-                        fontFamily: '"Fira Code", "Monaco", "Menlo", "Consolas", monospace',
-                        fontSize: '0.875rem',
-                        lineHeight: 1.5,
-                        overflow: 'auto',
-                        position: 'relative',
-                        '&::-webkit-scrollbar': {
-                          width: '8px',
-                          height: '8px',
-                        },
-                        '&::-webkit-scrollbar-track': {
-                          background: '#2d2d2d',
-                        },
-                        '&::-webkit-scrollbar-thumb': {
-                          background: '#555',
-                          borderRadius: '4px',
-                          '&:hover': {
-                            background: '#666',
-                          },
-                        },
-                      }}
-                    >
-                      <Box
-                        component="pre"
-                        sx={{
-                          margin: 0,
-                          padding: '16px',
-                          whiteSpace: 'pre-wrap',
-                          wordBreak: 'break-word',
-                          display: 'flex',
-                          alignItems: 'flex-start',
-                          gap: 2,
-                        }}
-                      >
-                        {/* Line Numbers */}
-                        <Box
-                          sx={{
-                            color: '#858585',
-                            fontSize: '0.8rem',
-                            textAlign: 'right',
-                            minWidth: '2.5em',
-                            paddingRight: '1em',
-                            borderRight: '1px solid #444',
-                            userSelect: 'none',
-                            flexShrink: 0,
-                          }}
-                        >
-                          {cell.content.trim().split('\n').map((_, lineIndex) => (
-                            <Box key={lineIndex} sx={{ lineHeight: 1.5 }}>
-                              {lineIndex + 1}
-                            </Box>
-                          ))}
-                        </Box>
-                        
-                        {/* Code Content */}
-                        <Box
-                          component="code"
-                          sx={{
-                            flex: 1,
-                            color: 'inherit',
-                            fontFamily: 'inherit',
-                            fontSize: 'inherit',
-                            lineHeight: 'inherit',
-                            whiteSpace: 'pre-wrap',
-                            wordBreak: 'break-word',
-                          }}
-                        >
-                          <Box sx={{ fontFamily: 'inherit' }}>
-                            {highlightPythonCode(cell.content.trim())}
-                          </Box>
-                        </Box>
-                      </Box>
-                    </Box>
-                  )}
+                  </Box>
                 </Box>
-              </Paper>
-            ))}
+              </Box>
+            </Paper>
           </Box>
         </Box>
       </DialogContent>
