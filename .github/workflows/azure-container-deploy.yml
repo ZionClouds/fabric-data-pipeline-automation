@@ -66,7 +66,8 @@ jobs:
         continue-on-error: true
         run: |
           # Wait for SonarQube to process the analysis
-          sleep 10
+          echo "Waiting for SonarQube to process analysis..."
+          sleep 20
 
           # Fetch project status from SonarQube API
           SONAR_URL="${{ secrets.SONAR_HOST_URL }}"
@@ -75,20 +76,21 @@ jobs:
           # Get quality gate status
           QUALITY_GATE=$(curl -s -u "${{ secrets.SONAR_TOKEN }}:" \
             "${SONAR_URL}/api/qualitygates/project_status?projectKey=${PROJECT_KEY}" \
-            | jq -r '.projectStatus.status // "UNKNOWN"')
+            | jq -r '.projectStatus.status // "UNKNOWN"' 2>/dev/null || echo "N/A")
 
-          # Get metrics
-          METRICS=$(curl -s -u "${{ secrets.SONAR_TOKEN }}:" \
-            "${SONAR_URL}/api/measures/component?component=${PROJECT_KEY}&metricKeys=bugs,vulnerabilities,code_smells,coverage,duplicated_lines_density,security_hotspots" \
-            | jq -r '.component.measures')
+          # Get metrics with error handling
+          METRICS_RESPONSE=$(curl -s -u "${{ secrets.SONAR_TOKEN }}:" \
+            "${SONAR_URL}/api/measures/component?component=${PROJECT_KEY}&metricKeys=bugs,vulnerabilities,code_smells,coverage,duplicated_lines_density,security_hotspots" 2>/dev/null)
 
-          # Parse metrics
-          BUGS=$(echo "$METRICS" | jq -r '.[] | select(.metric=="bugs") | .value // "N/A"')
-          VULNERABILITIES=$(echo "$METRICS" | jq -r '.[] | select(.metric=="vulnerabilities") | .value // "N/A"')
-          CODE_SMELLS=$(echo "$METRICS" | jq -r '.[] | select(.metric=="code_smells") | .value // "N/A"')
-          COVERAGE=$(echo "$METRICS" | jq -r '.[] | select(.metric=="coverage") | .value // "N/A"')
-          DUPLICATIONS=$(echo "$METRICS" | jq -r '.[] | select(.metric=="duplicated_lines_density") | .value // "N/A"')
-          HOTSPOTS=$(echo "$METRICS" | jq -r '.[] | select(.metric=="security_hotspots") | .value // "N/A"')
+          METRICS=$(echo "$METRICS_RESPONSE" | jq -r '.component.measures // []' 2>/dev/null || echo "[]")
+
+          # Parse metrics with safe fallbacks
+          BUGS=$(echo "$METRICS" | jq -r '.[] | select(.metric=="bugs") | .value // "N/A"' 2>/dev/null || echo "N/A")
+          VULNERABILITIES=$(echo "$METRICS" | jq -r '.[] | select(.metric=="vulnerabilities") | .value // "N/A"' 2>/dev/null || echo "N/A")
+          CODE_SMELLS=$(echo "$METRICS" | jq -r '.[] | select(.metric=="code_smells") | .value // "N/A"' 2>/dev/null || echo "N/A")
+          COVERAGE=$(echo "$METRICS" | jq -r '.[] | select(.metric=="coverage") | .value // "N/A"' 2>/dev/null || echo "N/A")
+          DUPLICATIONS=$(echo "$METRICS" | jq -r '.[] | select(.metric=="duplicated_lines_density") | .value // "N/A"' 2>/dev/null || echo "N/A")
+          HOTSPOTS=$(echo "$METRICS" | jq -r '.[] | select(.metric=="security_hotspots") | .value // "N/A"' 2>/dev/null || echo "N/A")
 
           # Store in environment for summary
           echo "QUALITY_GATE=${QUALITY_GATE}" >> $GITHUB_ENV
@@ -400,20 +402,21 @@ jobs:
           SONAR_URL="${{ secrets.SONAR_HOST_URL }}"
           PROJECT_KEY="fabric-data-pipeline-automation"
 
-          # Get quality gate status
+          # Get quality gate status with error handling
           QUALITY_GATE=$(curl -s -u "${{ secrets.SONAR_TOKEN }}:" \
             "${SONAR_URL}/api/qualitygates/project_status?projectKey=${PROJECT_KEY}" \
-            | jq -r '.projectStatus.status // "UNKNOWN"' || echo "N/A")
+            | jq -r '.projectStatus.status // "UNKNOWN"' 2>/dev/null || echo "N/A")
 
-          # Get key metrics
-          METRICS=$(curl -s -u "${{ secrets.SONAR_TOKEN }}:" \
-            "${SONAR_URL}/api/measures/component?component=${PROJECT_KEY}&metricKeys=bugs,vulnerabilities,code_smells,coverage" \
-            | jq -r '.component.measures' || echo "[]")
+          # Get key metrics with error handling
+          METRICS_RESPONSE=$(curl -s -u "${{ secrets.SONAR_TOKEN }}:" \
+            "${SONAR_URL}/api/measures/component?component=${PROJECT_KEY}&metricKeys=bugs,vulnerabilities,code_smells,coverage" 2>/dev/null)
 
-          BUGS=$(echo "$METRICS" | jq -r '.[] | select(.metric=="bugs") | .value // "N/A"' || echo "N/A")
-          VULNERABILITIES=$(echo "$METRICS" | jq -r '.[] | select(.metric=="vulnerabilities") | .value // "N/A"' || echo "N/A")
-          CODE_SMELLS=$(echo "$METRICS" | jq -r '.[] | select(.metric=="code_smells") | .value // "N/A"' || echo "N/A")
-          COVERAGE=$(echo "$METRICS" | jq -r '.[] | select(.metric=="coverage") | .value // "N/A"' || echo "N/A")
+          METRICS=$(echo "$METRICS_RESPONSE" | jq -r '.component.measures // []' 2>/dev/null || echo "[]")
+
+          BUGS=$(echo "$METRICS" | jq -r '.[] | select(.metric=="bugs") | .value // "N/A"' 2>/dev/null || echo "N/A")
+          VULNERABILITIES=$(echo "$METRICS" | jq -r '.[] | select(.metric=="vulnerabilities") | .value // "N/A"' 2>/dev/null || echo "N/A")
+          CODE_SMELLS=$(echo "$METRICS" | jq -r '.[] | select(.metric=="code_smells") | .value // "N/A"' 2>/dev/null || echo "N/A")
+          COVERAGE=$(echo "$METRICS" | jq -r '.[] | select(.metric=="coverage") | .value // "N/A"' 2>/dev/null || echo "N/A")
 
           echo "=========================================="
           echo "  DEPLOYMENT COMPLETE"

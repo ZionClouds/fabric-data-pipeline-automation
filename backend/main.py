@@ -2246,7 +2246,8 @@ async def rename_pipeline(job_id: str, request: Dict[str, Any], user: dict = Dep
                 token = await fabric_svc.get_access_token()
 
                 # Update pipeline display name in Fabric using REST API
-                update_url = f"https://api.fabric.microsoft.com/v1/workspaces/{workspace_id}/items/{pipeline_id}"
+                # Official endpoint: https://learn.microsoft.com/en-us/rest/api/fabric/datapipeline/items/update-data-pipeline
+                update_url = f"https://api.fabric.microsoft.com/v1/workspaces/{workspace_id}/dataPipelines/{pipeline_id}"
 
                 async with httpx.AsyncClient(timeout=30.0) as client:
                     headers = {
@@ -2258,7 +2259,12 @@ async def rename_pipeline(job_id: str, request: Dict[str, Any], user: dict = Dep
                         "displayName": new_pipeline_name
                     }
 
+                    logger.info(f"PATCH request to: {update_url}")
+                    logger.info(f"Payload: {payload}")
+
                     response = await client.patch(update_url, headers=headers, json=payload)
+
+                    logger.info(f"Fabric API Response: {response.status_code}")
 
                     if response.status_code == 200:
                         logger.info(f"[SUCCESS] Updated pipeline name in Fabric to '{new_pipeline_name}'")
