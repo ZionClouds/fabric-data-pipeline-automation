@@ -593,15 +593,25 @@ const PipelinePreview = () => {
                       <Box sx={{ p: 2 }}>
                         {generatedPipeline.activities && generatedPipeline.activities.length > 0 ? (
                           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
-                            {generatedPipeline.activities.map((activity, index) => (
+                            {generatedPipeline.activities.map((activity, index) => {
+                              // Special styling for notification and dataflow activities
+                              const isNotification = activity.type === 'Office365';
+                              const isDataflow = activity.type === 'DataflowGen2';
+                              const isSpecialActivity = isNotification || isDataflow;
+
+                              return (
                               <Paper
                                 key={index}
                                 elevation={0}
                                 sx={{
                                   p: 1.5,
                                   borderRadius: 1.5,
-                                  border: '1px solid rgba(102, 126, 234, 0.1)',
-                                  bgcolor: 'rgba(248, 250, 252, 0.5)',
+                                  border: isSpecialActivity
+                                    ? '2px solid rgba(102, 126, 234, 0.3)'
+                                    : '1px solid rgba(102, 126, 234, 0.1)',
+                                  bgcolor: isSpecialActivity
+                                    ? 'rgba(102, 126, 234, 0.05)'
+                                    : 'rgba(248, 250, 252, 0.5)',
                                   position: 'relative',
                                   '&::before': {
                                     content: '""',
@@ -609,15 +619,36 @@ const PipelinePreview = () => {
                                     left: 0,
                                     top: 0,
                                     bottom: 0,
-                                    width: '2px',
-                                    background: 'linear-gradient(180deg, #667eea 0%, #764ba2 100%)',
+                                    width: isSpecialActivity ? '4px' : '2px',
+                                    background: isNotification
+                                      ? 'linear-gradient(180deg, #f59e0b 0%, #d97706 100%)'
+                                      : isDataflow
+                                      ? 'linear-gradient(180deg, #10b981 0%, #059669 100%)'
+                                      : 'linear-gradient(180deg, #667eea 0%, #764ba2 100%)',
                                     borderRadius: '0 1px 1px 0',
                                   },
                                 }}
                               >
-                                <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 0.5, fontSize: '0.85rem' }}>
-                                  {activity.name}
-                                </Typography>
+                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
+                                  {isNotification && <span style={{ fontSize: '1.2rem' }}>📧</span>}
+                                  {isDataflow && <span style={{ fontSize: '1.2rem' }}>🔄</span>}
+                                  <Typography variant="subtitle2" sx={{ fontWeight: 600, fontSize: '0.85rem' }}>
+                                    {activity.name}
+                                  </Typography>
+                                  {isSpecialActivity && (
+                                    <Chip
+                                      label="NEW"
+                                      size="small"
+                                      sx={{
+                                        height: 18,
+                                        fontSize: '0.65rem',
+                                        bgcolor: isNotification ? '#fbbf24' : '#34d399',
+                                        color: 'white',
+                                        fontWeight: 700
+                                      }}
+                                    />
+                                  )}
+                                </Box>
                                 <Typography variant="body2" color="text.secondary" sx={{ mb: 0.5, fontSize: '0.8rem' }}>
                                   <strong>Type:</strong> {activity.type}
                                 </Typography>
