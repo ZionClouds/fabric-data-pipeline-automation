@@ -85,12 +85,23 @@ jobs:
           METRICS=$(echo "$METRICS_RESPONSE" | jq -r '.component.measures // []' 2>/dev/null || echo "[]")
 
           # Parse metrics with safe fallbacks
-          BUGS=$(echo "$METRICS" | jq -r '.[] | select(.metric=="bugs") | .value // "N/A"' 2>/dev/null || echo "N/A")
-          VULNERABILITIES=$(echo "$METRICS" | jq -r '.[] | select(.metric=="vulnerabilities") | .value // "N/A"' 2>/dev/null || echo "N/A")
-          CODE_SMELLS=$(echo "$METRICS" | jq -r '.[] | select(.metric=="code_smells") | .value // "N/A"' 2>/dev/null || echo "N/A")
-          COVERAGE=$(echo "$METRICS" | jq -r '.[] | select(.metric=="coverage") | .value // "N/A"' 2>/dev/null || echo "N/A")
-          DUPLICATIONS=$(echo "$METRICS" | jq -r '.[] | select(.metric=="duplicated_lines_density") | .value // "N/A"' 2>/dev/null || echo "N/A")
-          HOTSPOTS=$(echo "$METRICS" | jq -r '.[] | select(.metric=="security_hotspots") | .value // "N/A"' 2>/dev/null || echo "N/A")
+          BUGS=$(echo "$METRICS" | jq -r '([.[] | select(.metric=="bugs")] | first | .value) // "N/A"' 2>/dev/null)
+          BUGS=${BUGS:-N/A}
+
+          VULNERABILITIES=$(echo "$METRICS" | jq -r '([.[] | select(.metric=="vulnerabilities")] | first | .value) // "N/A"' 2>/dev/null)
+          VULNERABILITIES=${VULNERABILITIES:-N/A}
+
+          CODE_SMELLS=$(echo "$METRICS" | jq -r '([.[] | select(.metric=="code_smells")] | first | .value) // "N/A"' 2>/dev/null)
+          CODE_SMELLS=${CODE_SMELLS:-N/A}
+
+          COVERAGE=$(echo "$METRICS" | jq -r '([.[] | select(.metric=="coverage")] | first | .value) // "N/A"' 2>/dev/null)
+          COVERAGE=${COVERAGE:-N/A}
+
+          DUPLICATIONS=$(echo "$METRICS" | jq -r '([.[] | select(.metric=="duplicated_lines_density")] | first | .value) // "N/A"' 2>/dev/null)
+          DUPLICATIONS=${DUPLICATIONS:-N/A}
+
+          HOTSPOTS=$(echo "$METRICS" | jq -r '([.[] | select(.metric=="security_hotspots")] | first | .value) // "N/A"' 2>/dev/null)
+          HOTSPOTS=${HOTSPOTS:-N/A}
 
           # Store in environment for summary
           echo "QUALITY_GATE=${QUALITY_GATE}" >> $GITHUB_ENV
@@ -413,10 +424,17 @@ jobs:
 
           METRICS=$(echo "$METRICS_RESPONSE" | jq -r '.component.measures // []' 2>/dev/null || echo "[]")
 
-          BUGS=$(echo "$METRICS" | jq -r '.[] | select(.metric=="bugs") | .value // "N/A"' 2>/dev/null || echo "N/A")
-          VULNERABILITIES=$(echo "$METRICS" | jq -r '.[] | select(.metric=="vulnerabilities") | .value // "N/A"' 2>/dev/null || echo "N/A")
-          CODE_SMELLS=$(echo "$METRICS" | jq -r '.[] | select(.metric=="code_smells") | .value // "N/A"' 2>/dev/null || echo "N/A")
-          COVERAGE=$(echo "$METRICS" | jq -r '.[] | select(.metric=="coverage") | .value // "N/A"' 2>/dev/null || echo "N/A")
+          BUGS=$(echo "$METRICS" | jq -r '([.[] | select(.metric=="bugs")] | first | .value) // "N/A"' 2>/dev/null)
+          BUGS=${BUGS:-N/A}
+
+          VULNERABILITIES=$(echo "$METRICS" | jq -r '([.[] | select(.metric=="vulnerabilities")] | first | .value) // "N/A"' 2>/dev/null)
+          VULNERABILITIES=${VULNERABILITIES:-N/A}
+
+          CODE_SMELLS=$(echo "$METRICS" | jq -r '([.[] | select(.metric=="code_smells")] | first | .value) // "N/A"' 2>/dev/null)
+          CODE_SMELLS=${CODE_SMELLS:-N/A}
+
+          COVERAGE=$(echo "$METRICS" | jq -r '([.[] | select(.metric=="coverage")] | first | .value) // "N/A"' 2>/dev/null)
+          COVERAGE=${COVERAGE:-N/A}
 
           echo "=========================================="
           echo "  DEPLOYMENT COMPLETE"

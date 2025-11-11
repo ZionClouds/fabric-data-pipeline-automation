@@ -2204,7 +2204,7 @@ async def delete_pipeline(job_id: str, user: dict = Depends(validate_token)):
         raise HTTPException(status_code=500, detail=f"Failed to delete pipeline: {error_msg}")
 
 # Rename pipeline
-@app.put("/api/pipelines/{job_id}/rename")
+@app.patch("/api/pipelines/{job_id}/rename")
 async def rename_pipeline(job_id: str, request: Dict[str, Any], user: dict = Depends(validate_token)):
     """
     Rename a pipeline in both database and Microsoft Fabric
@@ -2212,6 +2212,9 @@ async def rename_pipeline(job_id: str, request: Dict[str, Any], user: dict = Dep
     This will:
     1. Update the pipeline name in the database
     2. Update the pipeline display name in Microsoft Fabric (if deployed)
+
+    Uses PATCH method as per REST conventions for partial resource updates.
+    Aligns with Microsoft Fabric API which also uses PATCH for updating displayName.
     """
     try:
         new_pipeline_name = request.get("new_pipeline_name")
