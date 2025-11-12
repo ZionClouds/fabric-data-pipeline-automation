@@ -91,6 +91,16 @@ const LakehouseWarehouseSelector = () => {
     return null;
   }
 
+  if (!selectedWorkspace) {
+    return (
+      <Box sx={{ p: 2, textAlign: 'center' }}>
+        <Typography variant="body2" sx={{ color: '#6b7280', fontSize: '13px' }}>
+          Please select a workspace first
+        </Typography>
+      </Box>
+    );
+  }
+
   if (loading) {
     return (
       <Box sx={{
@@ -98,20 +108,9 @@ const LakehouseWarehouseSelector = () => {
         alignItems: 'center',
         gap: 1.5,
         p: 2,
-        borderRadius: 2,
-        bgcolor: 'rgba(255, 255, 255, 0.1)',
       }}>
-        <CircularProgress
-          size={16}
-          sx={{ color: 'rgba(255, 255, 255, 0.7)' }}
-        />
-        <Typography
-          variant="body2"
-          sx={{
-            color: 'rgba(255, 255, 255, 0.8)',
-            fontSize: '13px'
-          }}
-        >
+        <CircularProgress size={16} sx={{ color: '#0066cc' }} />
+        <Typography variant="body2" sx={{ color: '#6b7280', fontSize: '13px' }}>
           Loading lakehouses and warehouses...
         </Typography>
       </Box>
@@ -119,7 +118,7 @@ const LakehouseWarehouseSelector = () => {
   }
 
   const selectStyles = {
-    color: 'white',
+    color: '#1f2937',
     fontSize: '13px',
     minHeight: '36px',
     '& .MuiSelect-select': {
@@ -131,53 +130,53 @@ const LakehouseWarehouseSelector = () => {
       minHeight: 'unset',
     },
     '& .MuiOutlinedInput-notchedOutline': {
-      borderColor: 'rgba(255, 255, 255, 0.2)',
+      borderColor: 'rgba(0, 102, 204, 0.3)',
       borderWidth: '1px',
     },
     '&:hover .MuiOutlinedInput-notchedOutline': {
-      borderColor: 'rgba(255, 255, 255, 0.4)',
+      borderColor: 'rgba(0, 102, 204, 0.5)',
     },
     '&.Mui-focused .MuiOutlinedInput-notchedOutline': {
-      borderColor: 'rgba(255, 255, 255, 0.6)',
+      borderColor: '#0066cc',
       borderWidth: '1px',
     },
     '& .MuiSelect-icon': {
-      color: 'rgba(255, 255, 255, 0.7)',
+      color: '#6b7280',
       fontSize: '18px',
     },
-    bgcolor: 'rgba(255, 255, 255, 0.08)',
+    bgcolor: '#f8fafc',
     borderRadius: 1.25,
     transition: 'all 0.2s ease',
     '&:hover': {
-      bgcolor: 'rgba(255, 255, 255, 0.12)',
+      bgcolor: '#f1f5f9',
     },
   };
 
   const menuProps = {
     PaperProps: {
       sx: {
-        bgcolor: 'rgba(255, 255, 255, 0.95)',
-        backdropFilter: 'blur(20px)',
+        bgcolor: 'white',
         borderRadius: 1.5,
         mt: 0.25,
         maxHeight: '240px',
         boxShadow: '0 4px 20px rgba(0, 0, 0, 0.15)',
-        border: '1px solid rgba(255, 255, 255, 0.2)',
+        border: '1px solid #e2e8f0',
         '& .MuiMenuItem-root': {
           py: 0.75,
           px: 1.5,
           fontSize: '13px',
           fontWeight: 500,
           minHeight: '36px',
+          color: '#1f2937',
           transition: 'all 0.15s ease',
           '&:hover': {
-            bgcolor: 'rgba(102, 126, 234, 0.08)',
+            bgcolor: 'rgba(0, 102, 204, 0.08)',
           },
           '&.Mui-selected': {
-            bgcolor: 'rgba(102, 126, 234, 0.12)',
-            color: '#4f46e5',
+            bgcolor: 'rgba(0, 102, 204, 0.12)',
+            color: '#0066cc',
             '&:hover': {
-              bgcolor: 'rgba(102, 126, 234, 0.16)',
+              bgcolor: 'rgba(0, 102, 204, 0.16)',
             },
           },
         },
@@ -192,9 +191,9 @@ const LakehouseWarehouseSelector = () => {
         <Typography
           variant="caption"
           sx={{
-            color: 'rgba(255, 255, 255, 0.8)',
+            color: '#0066cc',
             fontSize: '11px',
-            fontWeight: 500,
+            fontWeight: 600,
             mb: 1,
             display: 'block',
             textTransform: 'uppercase',
@@ -221,7 +220,7 @@ const LakehouseWarehouseSelector = () => {
             {lakehouses.map(lakehouse => (
               <MenuItem key={lakehouse.id} value={lakehouse.id}>
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, width: '100%' }}>
-                  <StorageIcon sx={{ fontSize: '16px', color: '#667eea' }} />
+                  <StorageIcon sx={{ fontSize: '16px', color: '#0066cc' }} />
                   <Typography sx={{ flex: 1, fontSize: '13px' }}>{lakehouse.name}</Typography>
                   {selectedLakehouse?.id === lakehouse.id && (
                     <CheckIcon sx={{ fontSize: '16px', color: '#10b981' }} />
@@ -239,8 +238,8 @@ const LakehouseWarehouseSelector = () => {
             size="small"
             sx={{
               mt: 1,
-              bgcolor: 'rgba(16, 185, 129, 0.15)',
-              color: 'rgba(255, 255, 255, 0.9)',
+              bgcolor: 'rgba(16, 185, 129, 0.1)',
+              color: '#065f46',
               fontSize: '10px',
               fontWeight: 500,
               height: 20,
@@ -262,9 +261,9 @@ const LakehouseWarehouseSelector = () => {
         <Typography
           variant="caption"
           sx={{
-            color: 'rgba(255, 255, 255, 0.8)',
+            color: '#0066cc',
             fontSize: '11px',
-            fontWeight: 500,
+            fontWeight: 600,
             mb: 1,
             display: 'block',
             textTransform: 'uppercase',
@@ -291,7 +290,7 @@ const LakehouseWarehouseSelector = () => {
             {warehouses.map(warehouse => (
               <MenuItem key={warehouse.id} value={warehouse.id}>
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, width: '100%' }}>
-                  <WarehouseIcon sx={{ fontSize: '16px', color: '#667eea' }} />
+                  <WarehouseIcon sx={{ fontSize: '16px', color: '#0066cc' }} />
                   <Typography sx={{ flex: 1, fontSize: '13px' }}>{warehouse.name}</Typography>
                   {selectedWarehouse?.id === warehouse.id && (
                     <CheckIcon sx={{ fontSize: '16px', color: '#10b981' }} />
@@ -309,8 +308,8 @@ const LakehouseWarehouseSelector = () => {
             size="small"
             sx={{
               mt: 1,
-              bgcolor: 'rgba(16, 185, 129, 0.15)',
-              color: 'rgba(255, 255, 255, 0.9)',
+              bgcolor: 'rgba(16, 185, 129, 0.1)',
+              color: '#065f46',
               fontSize: '10px',
               fontWeight: 500,
               height: 20,

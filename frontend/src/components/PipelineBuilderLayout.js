@@ -27,8 +27,7 @@ import {
   ChevronLeft as ChevronLeftIcon,
   Logout as LogoutIcon
 } from '@mui/icons-material';
-import WorkspaceSelector from './WorkspaceSelector';
-import LakehouseWarehouseSelector from './LakehouseWarehouseSelector';
+import PermanentHeader from './PermanentHeader';
 import AIChat from './AIChat';
 import PipelinePreview from './PipelinePreview';
 import PipelineList from './PipelineList';
@@ -43,14 +42,8 @@ const PipelineBuilderLayout = () => {
     setActiveTab, 
     handleTabClick 
   } = usePipeline();
-  const [workspaces, setWorkspaces] = useState([]);
-  const [isLoadingWorkspaces, setIsLoadingWorkspaces] = useState(true);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [showWorkspaceAlert, setShowWorkspaceAlert] = useState(false);
-
-  useEffect(() => {
-    loadWorkspaces();
-  }, [user]);
 
   // Auto-switch to preview tab when a job is selected for preview
   useEffect(() => {
@@ -58,21 +51,6 @@ const PipelineBuilderLayout = () => {
       handleTabClick('preview');
     }
   }, [selectedJobForPreview, handleTabClick]);
-
-  const loadWorkspaces = async () => {
-    try {
-      setIsLoadingWorkspaces(true);
-      const response = await pipelineApi.getWorkspaces();
-      console.log('Workspaces loaded:', response.data);
-      setWorkspaces(response.data || []);
-    } catch (error) {
-      console.error('Failed to load workspaces:', error);
-      // Set empty workspaces array and let user continue
-      setWorkspaces([]);
-    } finally {
-      setIsLoadingWorkspaces(false);
-    }
-  };
 
   // Handle tab navigation with workspace validation
   const handleTabClickWithValidation = (tab) => {
@@ -94,8 +72,10 @@ const PipelineBuilderLayout = () => {
 
   return (
     <Box sx={{ display: 'flex', height: '100vh', bgcolor: '#fafafa' }}>
-      {/* Sidebar */}
-      <Drawer
+      {/* Main Content Area */}
+      <Box sx={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
+        {/* Sidebar */}
+        <Drawer
         variant="permanent"
         sx={{
           width: sidebarCollapsed ? 70 : 320,
@@ -234,53 +214,7 @@ const PipelineBuilderLayout = () => {
           </IconButton>
         </Box>
 
-        {/* Workspace Section */}
-        {!sidebarCollapsed && (
-          <Box
-            sx={{
-              borderBottom: '1px solid rgba(255, 255, 255, 0.1)',
-              flexShrink: 0,
-              maxHeight: '40%',
-              overflow: 'hidden',
-              display: 'flex',
-              flexDirection: 'column',
-            }}
-          >
-            <Box
-              sx={{
-                p: '16px 20px',
-                overflowY: 'auto',
-                flexGrow: 1,
-                '&::-webkit-scrollbar': {
-                  width: '6px',
-                },
-                '&::-webkit-scrollbar-track': {
-                  background: 'rgba(255, 255, 255, 0.1)',
-                  borderRadius: '3px',
-                },
-                '&::-webkit-scrollbar-thumb': {
-                  background: 'rgba(255, 255, 255, 0.3)',
-                  borderRadius: '3px',
-                  '&:hover': {
-                    background: 'rgba(255, 255, 255, 0.4)',
-                  },
-                },
-                scrollbarWidth: 'thin',
-                scrollbarColor: 'rgba(255, 255, 255, 0.3) rgba(255, 255, 255, 0.1)',
-              }}
-            >
-              <WorkspaceSelector
-                workspaces={workspaces}
-                isLoading={isLoadingWorkspaces}
-              />
 
-              {/* Lakehouse and Warehouse Selectors */}
-              <Box sx={{ mt: 2 }}>
-                <LakehouseWarehouseSelector />
-              </Box>
-            </Box>
-          </Box>
-        )}
 
         {/* Navigation Menu */}
         <Box 
@@ -523,129 +457,22 @@ const PipelineBuilderLayout = () => {
 
       {/* Main Content */}
       <Box component="main" sx={{ flexGrow: 1, display: 'flex', flexDirection: 'column' }}>
+        {/* Permanent Header */}
+        <PermanentHeader activeTab={activeTab} />
+        
         {selectedWorkspace ? (
-          <>
-            {/* Content Header */}
-            <Paper
-              elevation={0}
-              sx={{
-                p: '12px 24px',
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'center',
-                borderRadius: 0,
-                borderBottom: '1px solid rgba(0, 0, 0, 0.12)',
-                bgcolor: 'rgba(255, 255, 255, 0.95)',
-                backdropFilter: 'blur(20px)',
-                position: 'relative',
-                overflow: 'hidden',
-                minHeight: '60px',
-                zIndex: 1000,
-                '&::before': {
-                  content: '""',
-                  position: 'absolute',
-                  top: 0,
-                  left: 0,
-                  right: 0,
-                  height: '2px',
-                  background: 'linear-gradient(135deg, hsl(210 100% 45%), hsl(175 70% 50%))',
-                  zIndex: 1,
-                },
-              }}
-            >
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
-                <Box
-                  sx={{
-                    width: 32,
-                    height: 32,
-                    borderRadius: '8px',
-                    background: 'linear-gradient(135deg, hsl(210 100% 45%), hsl(175 70% 50%))',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    fontSize: '16px',
-                    boxShadow: '0 2px 8px rgba(0, 123, 255, 0.25)',
-                  }}
-                >
-                  {activeTab === 'chat' && '💬'}
-                  {activeTab === 'preview' && '📊'}
-                  {activeTab === 'pipelines' && '📁'}
-                </Box>
-                <Box>
-                  <Typography
-                    variant="h6"
-                    component="h1"
-                    sx={{
-                      fontSize: '1.1rem',
-                      fontWeight: 600,
-                      color: '#1f2937',
-                      margin: 0,
-                      letterSpacing: '-0.01em',
-                      lineHeight: 1.2,
-                      background: 'linear-gradient(135deg, #1f2937 0%, #4f46e5 100%)',
-                      backgroundClip: 'text',
-                      WebkitBackgroundClip: 'text',
-                      WebkitTextFillColor: 'transparent',
-                    }}
-                  >
-                    {activeTab === 'chat' && 'AI Chat Assistant'}
-                    {activeTab === 'preview' && 'Pipeline Preview'}
-                    {activeTab === 'pipelines' && 'My Pipelines'}
-                  </Typography>
-                  <Typography
-                    variant="caption"
-                    sx={{
-                      fontSize: '0.75rem',
-                      color: '#6b7280',
-                      fontWeight: 400,
-                      mt: 0.25,
-                      display: 'block',
-                      lineHeight: 1.2,
-                    }}
-                  >
-                    {activeTab === 'chat' && 'Build pipelines with natural language'}
-                    {activeTab === 'preview' && 'Review and validate your pipeline'}
-                    {activeTab === 'pipelines' && 'Manage your data pipeline projects'}
-                  </Typography>
-                </Box>
-              </Box>
-              <Chip
-                label={`📍 ${selectedWorkspace.name}`}
-                size="small"
-                sx={{
-                  background: 'linear-gradient(135deg, hsl(210 100% 45%), hsl(175 70% 50%))',
-                  color: 'white',
-                  fontWeight: 600,
-                  fontSize: '11px',
-                  height: 28,
-                  borderRadius: '14px',
-                  boxShadow: '0 2px 8px rgba(0, 123, 255, 0.25)',
-                  transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-                  '& .MuiChip-label': {
-                    px: 1.5,
-                  },
-                  '&:hover': {
-                    transform: 'translateY(-1px)',
-                    boxShadow: '0 4px 12px rgba(0, 123, 255, 0.35)',
-                  },
-                }}
-              />
-            </Paper>
-
-            {/* Content Body */}
-            <Box
-              sx={{
-                flex: 1,
-                p: activeTab === 'chat' ? 0 : 4, // Remove padding for chat to maximize space
-                overflow: 'hidden', // Changed from 'auto' to 'hidden' for chat
-                bgcolor: '#fafafa',
-              }}
-            >
-              {activeTab === 'chat' && <AIChat />}
-              {activeTab === 'preview' && <PipelinePreview />}
-              {activeTab === 'pipelines' && <PipelineList />}
-            </Box>
-          </>
+          <Box
+            sx={{
+              flex: 1,
+              p: activeTab === 'chat' ? 0 : 4, // Remove padding for chat to maximize space
+              overflow: 'hidden', // Changed from 'auto' to 'hidden' for chat
+              bgcolor: '#fafafa',
+            }}
+          >
+            {activeTab === 'chat' && <AIChat />}
+            {activeTab === 'preview' && <PipelinePreview />}
+            {activeTab === 'pipelines' && <PipelineList />}
+          </Box>
         ) : (
           <Box
             sx={{
@@ -757,7 +584,7 @@ const PipelineBuilderLayout = () => {
                   mx: 'auto',
                 }}
               >
-                Select a workspace from the sidebar to start building intelligent data pipelines with AI assistance.
+                Select a workspace from the header to start building intelligent data pipelines with AI assistance.
               </Typography>
               <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
                 {[
@@ -868,9 +695,10 @@ const PipelineBuilderLayout = () => {
             boxShadow: '0 8px 24px rgba(255, 152, 0, 0.3)',
           }}
         >
-          ⚠️ Please select a workspace from the sidebar first!
+          Please select a workspace from the header first!
         </Alert>
       </Snackbar>
+      </Box>
     </Box>
   );
 };

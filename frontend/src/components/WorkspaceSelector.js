@@ -27,17 +27,15 @@ const WorkspaceSelector = ({ workspaces, isLoading }) => {
         alignItems: 'center', 
         gap: 1.5,
         p: 2,
-        borderRadius: 2,
-        bgcolor: 'rgba(255, 255, 255, 0.1)',
       }}>
         <CircularProgress 
           size={16} 
-          sx={{ color: 'rgba(255, 255, 255, 0.7)' }} 
+          sx={{ color: '#0066cc' }} 
         />
         <Typography 
           variant="body2" 
           sx={{ 
-            color: 'rgba(255, 255, 255, 0.8)',
+            color: '#6b7280',
             fontSize: '13px'
           }}
         >
@@ -52,10 +50,10 @@ const WorkspaceSelector = ({ workspaces, isLoading }) => {
       <Typography
         variant="caption"
         sx={{
-          color: 'rgba(255, 255, 255, 0.8)',
+          color: '#0066cc',
           fontSize: '11px',
-          fontWeight: 500,
-          mb: 1,
+          fontWeight: 600,
+          mb: 1.5,
           display: 'block',
           textTransform: 'uppercase',
           letterSpacing: '0.5px',
@@ -70,7 +68,7 @@ const WorkspaceSelector = ({ workspaces, isLoading }) => {
           onChange={handleSelect}
           displayEmpty
           sx={{
-            color: 'white',
+            color: '#1f2937',
             fontSize: '13px',
             minHeight: '36px',
             '& .MuiSelect-select': {
@@ -82,52 +80,52 @@ const WorkspaceSelector = ({ workspaces, isLoading }) => {
               minHeight: 'unset',
             },
             '& .MuiOutlinedInput-notchedOutline': {
-              borderColor: 'rgba(255, 255, 255, 0.2)',
+              borderColor: 'rgba(0, 102, 204, 0.3)',
               borderWidth: '1px',
             },
             '&:hover .MuiOutlinedInput-notchedOutline': {
-              borderColor: 'rgba(255, 255, 255, 0.4)',
+              borderColor: 'rgba(0, 102, 204, 0.5)',
             },
             '&.Mui-focused .MuiOutlinedInput-notchedOutline': {
-              borderColor: 'rgba(255, 255, 255, 0.6)',
+              borderColor: '#0066cc',
               borderWidth: '1px',
             },
             '& .MuiSelect-icon': {
-              color: 'rgba(255, 255, 255, 0.7)',
+              color: '#6b7280',
               fontSize: '18px',
             },
-            bgcolor: 'rgba(255, 255, 255, 0.08)',
+            bgcolor: '#f8fafc',
             borderRadius: 1.25,
             transition: 'all 0.2s ease',
             '&:hover': {
-              bgcolor: 'rgba(255, 255, 255, 0.12)',
+              bgcolor: '#f1f5f9',
             },
           }}
           MenuProps={{
             PaperProps: {
               sx: {
-                bgcolor: 'rgba(255, 255, 255, 0.95)',
-                backdropFilter: 'blur(20px)',
+                bgcolor: 'white',
                 borderRadius: 1.5,
                 mt: 0.25,
                 maxHeight: '240px',
                 boxShadow: '0 4px 20px rgba(0, 0, 0, 0.15)',
-                border: '1px solid rgba(255, 255, 255, 0.2)',
+                border: '1px solid #e2e8f0',
                 '& .MuiMenuItem-root': {
                   py: 0.75,
                   px: 1.5,
                   fontSize: '13px',
                   fontWeight: 500,
                   minHeight: '36px',
+                  color: '#1f2937',
                   transition: 'all 0.15s ease',
                   '&:hover': {
-                    bgcolor: 'rgba(102, 126, 234, 0.08)',
+                    bgcolor: 'rgba(0, 102, 204, 0.08)',
                   },
                   '&.Mui-selected': {
-                    bgcolor: 'rgba(102, 126, 234, 0.12)',
-                    color: '#4f46e5',
+                    bgcolor: 'rgba(0, 102, 204, 0.12)',
+                    color: '#0066cc',
                     '&:hover': {
-                      bgcolor: 'rgba(102, 126, 234, 0.16)',
+                      bgcolor: 'rgba(0, 102, 204, 0.16)',
                     },
                   },
                 },
@@ -144,7 +142,7 @@ const WorkspaceSelector = ({ workspaces, isLoading }) => {
           {workspaces.map(workspace => (
             <MenuItem key={workspace.id} value={workspace.id}>
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, width: '100%' }}>
-                <BusinessIcon sx={{ fontSize: '16px', color: '#667eea' }} />
+                <BusinessIcon sx={{ fontSize: '16px', color: '#0066cc' }} />
                 <Typography sx={{ flex: 1, fontSize: '13px' }}>{workspace.name}</Typography>
                 {selectedWorkspace?.id === workspace.id && (
                   <CheckIcon sx={{ fontSize: '16px', color: '#10b981' }} />
@@ -155,7 +153,6 @@ const WorkspaceSelector = ({ workspaces, isLoading }) => {
         </Select>
       </FormControl>
 
-      {/* Show success chip when workspace is selected */}
       {selectedWorkspace && (
         <Chip
           icon={<CheckIcon sx={{ fontSize: '12px' }} />}
@@ -163,8 +160,8 @@ const WorkspaceSelector = ({ workspaces, isLoading }) => {
           size="small"
           sx={{
             mt: 1,
-            bgcolor: 'rgba(16, 185, 129, 0.15)',
-            color: 'rgba(255, 255, 255, 0.9)',
+            bgcolor: 'rgba(16, 185, 129, 0.1)',
+            color: '#065f46',
             fontSize: '10px',
             fontWeight: 500,
             height: 20,
@@ -180,45 +177,7 @@ const WorkspaceSelector = ({ workspaces, isLoading }) => {
         />
       )}
 
-      {/* Show alert when no workspace is selected */}
-      {!selectedWorkspace && workspaces.length > 0 && (
-        <Alert
-          severity="info"
-          icon={<InfoIcon sx={{ fontSize: '14px' }} />}
-          sx={{
-            mt: 1,
-            py: 0.5,
-            px: 1,
-            bgcolor: 'rgba(255, 193, 7, 0.15)',
-            color: 'rgba(255, 255, 255, 0.95)',
-            border: '1px solid rgba(255, 193, 7, 0.4)',
-            borderRadius: 1,
-            fontSize: '11px',
-            alignItems: 'center',
-            '& .MuiAlert-icon': {
-              color: '#ffc107',
-              mr: 0.75,
-              py: 0,
-            },
-            '& .MuiAlert-message': {
-              py: 0,
-              fontSize: '11px',
-              fontWeight: 500,
-            },
-            animation: 'pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite',
-            '@keyframes pulse': {
-              '0%, 100%': {
-                opacity: 1,
-              },
-              '50%': {
-                opacity: 0.7,
-              },
-            },
-          }}
-        >
-          Select to start building
-        </Alert>
-      )}
+
     </Box>
   );
 };
