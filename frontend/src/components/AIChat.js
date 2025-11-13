@@ -706,16 +706,17 @@ const AIChat = () => {
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              overflow: 'auto'
+              overflow: 'auto',
+              py: 2
             }}
           >
-            <Box sx={{ maxWidth: 520, textAlign: 'center', width: '100%' }}>
+            <Box sx={{ maxWidth: 750, textAlign: 'center', width: '100%', px: 2 }}>
               <Avatar
                 sx={{
-                  width: 64,
-                  height: 64,
+                  width: 48,
+                  height: 48,
                   mx: 'auto',
-                  mb: 3,
+                  mb: 2,
                   background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
                   boxShadow: '0 8px 24px rgba(102, 126, 234, 0.25)',
                   border: '3px solid rgba(255, 255, 255, 0.9)',
@@ -736,15 +737,16 @@ const AIChat = () => {
                   },
                 }}
               >
-                <AutoAwesomeIcon sx={{ fontSize: 32, color: 'white' }} />
+                <AutoAwesomeIcon sx={{ fontSize: 26, color: 'white' }} />
               </Avatar>
 
               <Typography
                 variant="h5"
                 gutterBottom
                 sx={{
-                  mb: 1.5,
+                  mb: 1,
                   fontWeight: 700,
+                  fontSize: '1.35rem',
                   background: 'linear-gradient(135deg, #1f2937 0%, #4f46e5 100%)',
                   backgroundClip: 'text',
                   WebkitBackgroundClip: 'text',
@@ -759,10 +761,10 @@ const AIChat = () => {
                 variant="body2"
                 color="text.secondary"
                 sx={{
-                  mb: 3,
-                  fontSize: '0.95rem',
-                  lineHeight: 1.6,
-                  maxWidth: 450,
+                  mb: 2,
+                  fontSize: '0.875rem',
+                  lineHeight: 1.5,
+                  maxWidth: 400,
                   mx: 'auto',
                 }}
               >
@@ -774,8 +776,8 @@ const AIChat = () => {
                   severity="warning"
                   icon={<AutoAwesomeIcon />}
                   sx={{
-                    mb: 3,
-                    maxWidth: 500,
+                    mb: 2,
+                    maxWidth: 450,
                     mx: 'auto',
                     borderRadius: 2,
                     bgcolor: 'rgba(255, 152, 0, 0.08)',
@@ -785,7 +787,7 @@ const AIChat = () => {
                     }
                   }}
                 >
-                  <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                  <Typography variant="body2" sx={{ fontWeight: 600, fontSize: '0.8rem' }}>
                     Please select a workspace from the sidebar to continue
                   </Typography>
                 </Alert>
@@ -794,9 +796,9 @@ const AIChat = () => {
               <Typography
                 variant="subtitle2"
                 sx={{
-                  mb: 2,
+                  mb: 1.5,
                   fontWeight: 600,
-                  fontSize: '0.95rem',
+                  fontSize: '0.875rem',
                   color: '#374151',
                 }}
               >
@@ -808,7 +810,7 @@ const AIChat = () => {
                   display: 'grid',
                   gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, 1fr)' },
                   gap: 1.5,
-                  maxWidth: 520,
+                  maxWidth: 720,
                   mx: 'auto',
                 }}
               >
@@ -831,7 +833,7 @@ const AIChat = () => {
                       backdropFilter: 'blur(20px)',
                       position: 'relative',
                       overflow: 'hidden',
-                      minHeight: '64px',
+                      minHeight: '56px',
                       '&::before': {
                         content: '""',
                         position: 'absolute',
@@ -854,12 +856,12 @@ const AIChat = () => {
                       },
                     }}
                   >
-                    <CardContent sx={{ p: 1.75, '&:last-child': { pb: 1.75 } }}>
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                    <CardContent sx={{ p: 1.5, '&:last-child': { pb: 1.5 } }}>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25 }}>
                         <Box
                           sx={{
-                            width: 36,
-                            height: 36,
+                            width: 32,
+                            height: 32,
                             borderRadius: 1.5,
                             background: 'linear-gradient(135deg, rgba(102, 126, 234, 0.1) 0%, rgba(118, 75, 162, 0.1) 100%)',
                             display: 'flex',
@@ -868,13 +870,13 @@ const AIChat = () => {
                             flexShrink: 0,
                           }}
                         >
-                          <Typography sx={{ fontSize: '18px' }}>{item.icon}</Typography>
+                          <Typography sx={{ fontSize: '16px' }}>{item.icon}</Typography>
                         </Box>
                         <Typography
                           variant="body2"
                           sx={{
-                            fontSize: '0.85rem',
-                            lineHeight: 1.4,
+                            fontSize: '0.8rem',
+                            lineHeight: 1.35,
                             fontWeight: 600,
                             letterSpacing: '-0.005em',
                             flex: 1,
@@ -893,9 +895,9 @@ const AIChat = () => {
                 variant="caption"
                 color="text.secondary"
                 sx={{
-                  mt: 3,
+                  mt: 2,
                   display: 'block',
-                  fontSize: '0.75rem',
+                  fontSize: '0.7rem',
                   fontStyle: 'italic',
                   opacity: 0.7,
                 }}
@@ -1283,8 +1285,8 @@ const AIChat = () => {
       <Paper
         elevation={0}
         sx={{
-          px: 2.5,
-          py: 2,
+          px: 2,
+          py: 1.5,
           borderTop: '1px solid #e8f4fd',
           flexShrink: 0,
           bgcolor: 'white',
@@ -1298,7 +1300,7 @@ const AIChat = () => {
               severity="info"
               icon={<AutoAwesomeIcon />}
               sx={{
-                mb: 1.5,
+                mb: 1.25,
                 borderRadius: 2,
                 bgcolor: 'rgba(102, 126, 234, 0.08)',
                 border: '1px solid rgba(102, 126, 234, 0.2)',
@@ -1321,7 +1323,7 @@ const AIChat = () => {
           <TextField
             fullWidth
             multiline
-            maxRows={4}
+            maxRows={3}
             value={inputMessage}
             onChange={(e) => setInputMessage(e.target.value)}
             onKeyPress={(e) => {
@@ -1352,8 +1354,8 @@ const AIChat = () => {
                     sx={{
                       bgcolor: 'primary.main',
                       color: 'white',
-                      width: 32,
-                      height: 32,
+                      width: 30,
+                      height: 30,
                       '&:hover': {
                         bgcolor: 'primary.dark',
                         transform: 'scale(1.05)'
@@ -1365,9 +1367,9 @@ const AIChat = () => {
                     }}
                   >
                     {isLoading ? (
-                      <CircularProgress size={18} color="inherit" />
+                      <CircularProgress size={16} color="inherit" />
                     ) : (
-                      <SendIcon sx={{ fontSize: 18 }} />
+                      <SendIcon sx={{ fontSize: 16 }} />
                     )}
                   </IconButton>
                 </InputAdornment>
@@ -1375,7 +1377,7 @@ const AIChat = () => {
             }}
             sx={{
               '& .MuiOutlinedInput-root': {
-                borderRadius: 3,
+                borderRadius: 2.5,
                 bgcolor: 'rgba(248, 250, 252, 0.8)',
                 backdropFilter: 'blur(10px)',
                 border: '2px solid rgba(102, 126, 234, 0.1)',
@@ -1400,14 +1402,14 @@ const AIChat = () => {
               display: 'flex',
               justifyContent: 'space-between',
               alignItems: 'center',
-              mt: 0.75
+              mt: 0.5
             }}
           >
-            <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.7rem' }}>
+            <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.68rem' }}>
               Press Enter to send, Shift+Enter for new line
             </Typography>
             {inputMessage.length > 100 && (
-              <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.7rem' }}>
+              <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.68rem' }}>
                 {inputMessage.length}/2000
               </Typography>
             )}
