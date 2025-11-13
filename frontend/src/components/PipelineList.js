@@ -347,7 +347,7 @@ const PipelineList = () => {
       <Paper 
         elevation={0} 
         sx={{ 
-          p: 2, 
+          p: 1.5, 
           borderRadius: '20px', 
           borderBottom: '1px solid rgba(0, 0, 0, 0.08)',
           bgcolor: 'white',
@@ -372,19 +372,20 @@ const PipelineList = () => {
       >
         <Stack 
           direction={{ xs: 'column', sm: 'row' }} 
-          spacing={2} 
+          spacing={1.5} 
           alignItems={{ xs: 'stretch', sm: 'center' }}
           justifyContent="space-between"
         >
           {/* Filter and Sort Controls */}
-          <Stack direction="row" spacing={2} alignItems="center" sx={{ minWidth: 0 }}>
+          <Stack direction="row" spacing={1.5} alignItems="center" sx={{ minWidth: 0 }}>
             <FormControl size="small" sx={{ 
-              minWidth: 120,
+              minWidth: 110,
               '& .MuiOutlinedInput-root': {
-                borderRadius: '12px',
+                borderRadius: '10px',
                 background: 'rgba(255, 255, 255, 0.8)',
                 backdropFilter: 'blur(8px)',
                 transition: 'all 0.3s ease',
+                fontSize: '0.85rem',
                 '&:hover': {
                   background: 'rgba(255, 255, 255, 0.95)',
                   boxShadow: '0 2px 8px rgba(0, 0, 0, 0.1)',
@@ -393,6 +394,9 @@ const PipelineList = () => {
                   background: 'rgba(255, 255, 255, 1)',
                   boxShadow: '0 4px 12px rgba(102, 126, 234, 0.2)',
                 }
+              },
+              '& .MuiInputLabel-root': {
+                fontSize: '0.85rem'
               }
             }}>
               <InputLabel>Status</InputLabel>
@@ -404,18 +408,19 @@ const PipelineList = () => {
                 <MenuItem value="all">All Status</MenuItem>
                 <MenuItem value="completed">Completed</MenuItem>
                 <MenuItem value="in_progress">In Progress</MenuItem>
-                <MenuItem value="pending">Pending</MenuItem>
+                <MenuItem value="not_started">Not Started</MenuItem>
                 <MenuItem value="failed">Failed</MenuItem>
               </Select>
             </FormControl>
             
             <FormControl size="small" sx={{ 
-              minWidth: 140,
+              minWidth: 130,
               '& .MuiOutlinedInput-root': {
-                borderRadius: '12px',
+                borderRadius: '10px',
                 background: 'rgba(255, 255, 255, 0.8)',
                 backdropFilter: 'blur(8px)',
                 transition: 'all 0.3s ease',
+                fontSize: '0.85rem',
                 '&:hover': {
                   background: 'rgba(255, 255, 255, 0.95)',
                   boxShadow: '0 2px 8px rgba(0, 0, 0, 0.1)',
@@ -424,6 +429,9 @@ const PipelineList = () => {
                   background: 'rgba(255, 255, 255, 1)',
                   boxShadow: '0 4px 12px rgba(102, 126, 234, 0.2)',
                 }
+              },
+              '& .MuiInputLabel-root': {
+                fontSize: '0.85rem'
               }
             }}>
               <InputLabel>Sort By</InputLabel>
@@ -441,7 +449,7 @@ const PipelineList = () => {
               </Select>
             </FormControl>
 
-            <Typography variant="body2" color="text.secondary" sx={{ ml: 2 }}>
+            <Typography variant="body2" color="text.secondary" sx={{ ml: 1.5, fontSize: '0.8rem' }}>
               {filteredPipelines.length} pipeline{filteredPipelines.length !== 1 ? 's' : ''}
             </Typography>
           </Stack>
@@ -454,14 +462,15 @@ const PipelineList = () => {
             <Button
               variant="outlined"
               size="small"
-              startIcon={<RefreshIcon />}
+              startIcon={<RefreshIcon sx={{ fontSize: 16 }} />}
               onClick={fetchPipelines}
               disabled={loading}
               sx={{
                 textTransform: 'none',
-                borderRadius: '12px',
-                px: 2,
-                fontSize: '13px',
+                borderRadius: '10px',
+                px: 1.75,
+                py: 0.5,
+                fontSize: '0.8rem',
                 fontWeight: 600,
                 background: 'rgba(255, 255, 255, 0.8)',
                 backdropFilter: 'blur(8px)',
