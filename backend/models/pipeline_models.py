@@ -68,6 +68,8 @@ class ChatRequest(BaseModel):
     context: Optional[Dict[str, Any]] = None
     lakehouse_name: Optional[str] = None  # Selected lakehouse from dropdown
     warehouse_name: Optional[str] = None  # Selected warehouse from dropdown
+    conversation_id: Optional[str] = None  # Existing conversation to resume
+    lakehouse_id: Optional[str] = None  # Lakehouse ID for database storage
 
 class TransformationRequest(BaseModel):
     transformation_type: TransformationType

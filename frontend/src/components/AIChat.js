@@ -217,7 +217,7 @@ const AIChat = () => {
   };
 
   const handleRenameClick = () => {
-    const currentConv = conversations.find(c => c.conversation_id === conversationId);
+    const currentConv = conversations.find(c => c.conversation_id === conversationToDelete);
     setRenameTitle(currentConv?.title || '');
     setRenameDialogOpen(true);
     handleMenuClose();
@@ -231,6 +231,7 @@ const AIChat = () => {
       await loadConversations(); // Refresh list
       setRenameDialogOpen(false);
       setConversationToDelete(null);
+      setRenameTitle('');
     } catch (err) {
       console.error('Failed to rename conversation:', err);
     }
@@ -291,6 +292,8 @@ const AIChat = () => {
         workspace_id: selectedWorkspace?.id,
         lakehouse_name: selectedLakehouse?.name || null,
         warehouse_name: selectedWarehouse?.name || null,
+        lakehouse_id: selectedLakehouse?.id || null,
+        conversation_id: conversationId || null,  // Pass conversation_id if resuming
         messages: [
           ...chatMessages.map(m => ({
             role: String(m.role),

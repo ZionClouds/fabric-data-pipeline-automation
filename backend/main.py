@@ -72,22 +72,19 @@ app.include_router(conversation_router)
 @app.on_event("startup")
 async def startup_event():
     """Initialize database on startup"""
-    try:
-        logger.info("Initializing database...")
-        init_database(settings.DATABASE_URL)
-        logger.info("[OK] Database initialized successfully")
+    logger.info("Initializing database...")
+    init_database(settings.DATABASE_URL)
+    logger.info("Database initialized successfully")
 
-        # Log startup
+    # Log startup
+    try:
         db_service = get_db_service()
         db_service.log_info(
             service="main",
             message="Application started successfully"
         )
     except Exception as e:
-        logger.error(f"Failed to initialize database: {str(e)}")
-        # Don't crash the app, just log the error
-        import traceback
-        traceback.print_exc()
+        logger.error(f"Failed to log startup: {str(e)}")
 
 # Initialize services
 claude_service = ClaudeAIService()
@@ -563,11 +560,26 @@ async def chat_with_ai(request: ChatRequest, user: dict = Depends(validate_token
         logger.info(f"Proactive Agent chat request for workspace: {request.workspace_id} by user: {user['email']}")
 
         # Get or create database conversation
-        conversation_id = get_or_create_conversation(
-            user_email=user['email'],
-            workspace_id=request.workspace_id,
-            lakehouse_id=request.lakehouse_id if hasattr(request, 'lakehouse_id') else None
-        )
+        # If conversation_id provided, use it; otherwise create new
+        if request.conversation_id:
+            conversation_id = request.conversation_id
+            logger.info(f"Using existing conversation: {conversation_id}")
+        else:
+            # Create new conversation
+            try:
+                db_service = get_db_service()
+                conversation = db_service.create_conversation(
+                    user_email=user['email'],
+                    workspace_id=request.workspace_id,
+                    lakehouse_id=request.lakehouse_id,
+                    title="New Conversation"
+                )
+                conversation_id = conversation['conversation_id']
+                logger.info(f"Created new conversation: {conversation_id}")
+            except Exception as e:
+                logger.error(f"Error creating conversation: {str(e)}")
+                import uuid
+                conversation_id = str(uuid.uuid4())
 
         # Get or create conversation context for this user
         session_id = f"{user['email']}_{request.workspace_id}"
