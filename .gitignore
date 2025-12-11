@@ -78,4 +78,5 @@ Thumbs.db
 
 # Knowledge base (contains PDFs, test data, and temporary files)
 knowledge/
+knowledge-1/
 backend/knowledge/

@@ -24,7 +24,11 @@
       "Bash(pip3 uninstall:*)",
       "Bash(pip3 install:*)",
       "Bash(lsof:*)",
-      "Bash(npm run build:*)"
+      "Bash(npm run build:*)",
+      "Bash(wc:*)",
+      "Bash(ls:*)",
+      "Bash(xargs:*)",
+      "Bash(cat:*)"
     ],
     "deny": [],
     "ask": []
