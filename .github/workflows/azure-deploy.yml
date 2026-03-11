@@ -1,0 +1,279 @@
+name: Build and Deploy to Azure
+
+on:
+  push:
+    branches: [ "main", "dev-jay" ]
+  pull_request:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+env:
+  # Backend Configuration
+  BACKEND_AZURE_WEBAPP_NAME: 'fabric-pipeline-backend'  # Set your backend app name
+  BACKEND_PYTHON_VERSION: '3.11'
+
+  # Frontend Configuration
+  FRONTEND_AZURE_WEBAPP_NAME: 'fabric-pipeline-frontend'  # Set your frontend app name
+  NODE_VERSION: '18.x'
+
+permissions:
+  contents: read
+
+jobs:
+  # ============================================================================
+  # BACKEND BUILD & DEPLOY
+  # ============================================================================
+  build-backend:
+    name: Build Backend
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ env.BACKEND_PYTHON_VERSION }}
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ env.BACKEND_PYTHON_VERSION }}
+          cache: 'pip'
+          cache-dependency-path: 'backend/requirements.txt'
+
+      - name: Create virtual environment
+        working-directory: ./backend
+        run: |
+          python -m venv venv
+          source venv/bin/activate
+          python -m pip install --upgrade pip
+
+      - name: Install dependencies
+        working-directory: ./backend
+        run: |
+          source venv/bin/activate
+          pip install -r requirements.txt
+
+      - name: Create settings.py from secrets
+        working-directory: ./backend
+        run: |
+          cat > settings.py << 'EOF'
+          """
+          Centralized Settings Configuration - Generated from GitHub Secrets
+          """
+          import os
+
+          # ============================================================================
+          # DATABASE CONFIGURATION
+          # ============================================================================
+          DATABASE_SERVER = os.getenv("DATABASE_SERVER", "${{ secrets.DATABASE_SERVER }}")
+          DATABASE_NAME = os.getenv("DATABASE_NAME", "${{ secrets.DATABASE_NAME }}")
+          DATABASE_USER = os.getenv("DATABASE_USER", "${{ secrets.DATABASE_USER }}")
+          DATABASE_PASSWORD = os.getenv("DATABASE_PASSWORD", "${{ secrets.DATABASE_PASSWORD }}")
+
+          # ============================================================================
+          # ANTHROPIC CLAUDE CONFIGURATION
+          # ============================================================================
+          ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "${{ secrets.ANTHROPIC_API_KEY }}")
+          CLAUDE_MODEL = "claude-sonnet-4-20250514"
+          CLAUDE_MAX_TOKENS = 8000
+
+          # ============================================================================
+          # AZURE OPENAI CONFIGURATION (GPT-5)
+          # ============================================================================
+          AZURE_OPENAI_ENDPOINT = os.getenv("AZURE_OPENAI_ENDPOINT", "${{ secrets.AZURE_OPENAI_ENDPOINT }}")
+          AZURE_OPENAI_API_KEY = os.getenv("AZURE_OPENAI_API_KEY", "${{ secrets.AZURE_OPENAI_API_KEY }}")
+          AZURE_OPENAI_DEPLOYMENT = "${{ secrets.AZURE_OPENAI_DEPLOYMENT }}"
+          AZURE_OPENAI_API_VERSION = "2024-12-01-preview"
+          AZURE_OPENAI_MAX_TOKENS = 16384
+          AZURE_OPENAI_TEMPERATURE = 1.0
+
+          # ============================================================================
+          # AZURE AI FOUNDRY PROJECT (for Agents with Bing Grounding)
+          # ============================================================================
+          AZURE_AI_PROJECT_ENDPOINT = os.getenv("AZURE_AI_PROJECT_ENDPOINT", "${{ secrets.AZURE_AI_PROJECT_ENDPOINT }}")
+          BING_GROUNDING_CONNECTION_ID = os.getenv("BING_GROUNDING_CONNECTION_ID", "${{ secrets.BING_GROUNDING_CONNECTION_ID }}")
+
+          # ============================================================================
+          # LEGACY BING SEARCH CONFIGURATION
+          # ============================================================================
+          BING_SEARCH_API_KEY = os.getenv("BING_SEARCH_API_KEY", "${{ secrets.BING_SEARCH_API_KEY }}")
+          BING_SEARCH_ENDPOINT = "https://api.bing.microsoft.com/v7.0/search"
+
+          # ============================================================================
+          # MICROSOFT FABRIC CONFIGURATION
+          # ============================================================================
+          FABRIC_CLIENT_ID = os.getenv("FABRIC_CLIENT_ID", "${{ secrets.FABRIC_CLIENT_ID }}")
+          FABRIC_TENANT_ID = os.getenv("FABRIC_TENANT_ID", "${{ secrets.FABRIC_TENANT_ID }}")
+          FABRIC_CLIENT_SECRET = os.getenv("FABRIC_CLIENT_SECRET", "${{ secrets.FABRIC_CLIENT_SECRET }}")
+
+          # ============================================================================
+          # WORKSPACE BACKEND INTEGRATION
+          # ============================================================================
+          WORKSPACE_BACKEND_URL = os.getenv("WORKSPACE_BACKEND_URL", "${{ secrets.WORKSPACE_BACKEND_URL }}")
+
+          # ============================================================================
+          # CORS CONFIGURATION
+          # ============================================================================
+          ALLOWED_ORIGINS = [
+              "http://localhost:3000",
+              "http://localhost:3001",
+              "http://localhost:3002",
+              "https://${{ env.FRONTEND_AZURE_WEBAPP_NAME }}.azurewebsites.net"
+          ]
+
+          # ============================================================================
+          # DEVELOPMENT MODE
+          # ============================================================================
+          DISABLE_AUTH = os.getenv("DISABLE_AUTH", "False").lower() == "true"
+
+          # ============================================================================
+          # AZURE STORAGE ACCOUNT CONFIGURATION
+          # ============================================================================
+          STORAGE_ACCOUNT_NAME = os.getenv("STORAGE_ACCOUNT_NAME", "${{ secrets.STORAGE_ACCOUNT_NAME }}")
+          STORAGE_ACCOUNT_KEY = os.getenv("STORAGE_ACCOUNT_KEY", "${{ secrets.STORAGE_ACCOUNT_KEY }}")
+          STORAGE_CONNECTION_STRING = f"DefaultEndpointsProtocol=https;AccountName={STORAGE_ACCOUNT_NAME};AccountKey={STORAGE_ACCOUNT_KEY};EndpointSuffix=core.windows.net"
+          STORAGE_CONTAINERS = {
+              "bronze": "bronze",
+              "silver": "silver"
+          }
+          STORAGE_ENDPOINT_SUFFIX = "core.windows.net"
+          STORAGE_PROTOCOL = "https"
+
+          # ============================================================================
+          # DATABASE CONNECTION STRING HELPER
+          # ============================================================================
+          def get_db_connection_string():
+              """
+              Generate database connection string for SQL Server
+              """
+              return (
+                  f"DRIVER={{ODBC Driver 18 for SQL Server}};"
+                  f"SERVER={DATABASE_SERVER};"
+                  f"DATABASE={DATABASE_NAME};"
+                  f"UID={DATABASE_USER};"
+                  f"PWD={DATABASE_PASSWORD};"
+                  f"Encrypt=yes;"
+                  f"TrustServerCertificate=no;"
+                  f"Connection Timeout=30;"
+              )
+
+          # ============================================================================
+          # VALIDATION
+          # ============================================================================
+          def validate_settings():
+              """
+              Validate that required settings are present
+              """
+              required_settings = {
+                  "DATABASE_PASSWORD": DATABASE_PASSWORD,
+                  "ANTHROPIC_API_KEY": ANTHROPIC_API_KEY,
+                  "FABRIC_CLIENT_ID": FABRIC_CLIENT_ID,
+                  "FABRIC_TENANT_ID": FABRIC_TENANT_ID,
+                  "FABRIC_CLIENT_SECRET": FABRIC_CLIENT_SECRET,
+              }
+
+              missing = [key for key, value in required_settings.items() if not value]
+
+              if missing and not DISABLE_AUTH:
+                  print(f"WARNING: Missing required settings: {', '.join(missing)}")
+
+              return len(missing) == 0
+          EOF
+
+      - name: Upload backend artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-app
+          path: |
+            ./backend
+            !./backend/venv/
+            !./backend/__pycache__/
+            !./backend/**/__pycache__/
+
+  deploy-backend:
+    name: Deploy Backend to Azure
+    runs-on: ubuntu-latest
+    needs: build-backend
+    environment:
+      name: 'Production'
+      url: ${{ steps.deploy-to-backend.outputs.webapp-url }}
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev-jay')
+
+    steps:
+      - name: Download backend artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: backend-app
+          path: ./backend
+
+      - name: Deploy to Azure Web App
+        id: deploy-to-backend
+        uses: azure/webapps-deploy@v2
+        with:
+          app-name: ${{ env.BACKEND_AZURE_WEBAPP_NAME }}
+          publish-profile: ${{ secrets.AZURE_BACKEND_PUBLISH_PROFILE }}
+          package: ./backend
+
+  # ============================================================================
+  # FRONTEND BUILD & DEPLOY
+  # ============================================================================
+  build-frontend:
+    name: Build Frontend
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js ${{ env.NODE_VERSION }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: 'frontend/package-lock.json'
+
+      - name: Install dependencies
+        working-directory: ./frontend
+        run: npm ci
+
+      - name: Create .env file
+        working-directory: ./frontend
+        run: |
+          cat > .env << 'EOF'
+          REACT_APP_API_URL=https://${{ env.BACKEND_AZURE_WEBAPP_NAME }}.azurewebsites.net
+          REACT_APP_WORKSPACE_API_URL=https://${{ env.BACKEND_AZURE_WEBAPP_NAME }}.azurewebsites.net
+          EOF
+
+      - name: Build frontend
+        working-directory: ./frontend
+        run: npm run build
+        env:
+          CI: false  # Disable treating warnings as errors
+
+      - name: Upload frontend artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-app
+          path: ./frontend/build
+
+  deploy-frontend:
+    name: Deploy Frontend to Azure
+    runs-on: ubuntu-latest
+    needs: build-frontend
+    environment:
+      name: 'Production'
+      url: ${{ steps.deploy-to-frontend.outputs.webapp-url }}
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev-jay')
+
+    steps:
+      - name: Download frontend artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: frontend-app
+          path: ./frontend-build
+
+      - name: Deploy to Azure Web App
+        id: deploy-to-frontend
+        uses: azure/webapps-deploy@v2
+        with:
+          app-name: ${{ env.FRONTEND_AZURE_WEBAPP_NAME }}
+          publish-profile: ${{ secrets.AZURE_FRONTEND_PUBLISH_PROFILE }}
+          package: ./frontend-build

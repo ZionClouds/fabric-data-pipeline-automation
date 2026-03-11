@@ -45,7 +45,8 @@ import {
   Edit as EditIcon,
   MoreVert as MoreVertIcon,
   Add as AddIcon,
-  Chat as ChatIcon
+  Chat as ChatIcon,
+  Search as SearchIcon
 } from '@mui/icons-material';
 
 // API URL from env config (supports Docker runtime injection)
@@ -87,6 +88,7 @@ const AIChat = () => {
   const [renameTitle, setRenameTitle] = useState('');
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [conversationToDelete, setConversationToDelete] = useState(null);
+  const [conversationSearch, setConversationSearch] = useState('');
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -96,12 +98,12 @@ const AIChat = () => {
     scrollToBottom();
   }, [chatMessages]);
 
-  // Load conversations when component mounts or user changes
+  // Load conversations when component mounts, user changes, or workspace changes
   useEffect(() => {
     if (user) {
       loadConversations();
     }
-  }, [user]);
+  }, [user, selectedWorkspace]);
 
   // Restore conversation_id and messages from database on mount
   useEffect(() => {
@@ -149,14 +151,29 @@ const AIChat = () => {
     setIsLoadingConversations(true);
 
     try {
-      const params = {
+      const baseParams = {
         user_email: user.email,
-        status: 'active',
         limit: 50
       };
 
-      const response = await pipelineApi.getConversations(params);
-      setConversations(response.data || []);
+      // Add workspace filter if a workspace is selected
+      if (selectedWorkspace?.id) {
+        baseParams.workspace_id = selectedWorkspace.id;
+      }
+
+      // Load both active and completed conversations
+      const [activeResponse, completedResponse] = await Promise.all([
+        pipelineApi.getConversations({ ...baseParams, status: 'active' }),
+        pipelineApi.getConversations({ ...baseParams, status: 'completed' })
+      ]);
+
+      // Combine and sort by updated_at (most recent first)
+      const allConversations = [
+        ...(activeResponse.data || []),
+        ...(completedResponse.data || [])
+      ].sort((a, b) => new Date(b.updated_at) - new Date(a.updated_at));
+
+      setConversations(allConversations);
     } catch (err) {
       console.error('Failed to load conversations:', err);
     } finally {
@@ -336,6 +353,12 @@ const AIChat = () => {
         setCurrentPipeline(response.data.pipeline_preview);
       }
 
+      // Handle pipeline config from AI conversation
+      if (response.data.pipeline_config) {
+        console.log('Pipeline config received from AI:', response.data.pipeline_config);
+        updatePipelineConfig(response.data.pipeline_config);
+      }
+
     } catch (error) {
       console.error('Chat error:', error);
       addChatMessage('assistant', 'Sorry, I encountered an error. Please try again.');
@@ -476,8 +499,37 @@ const AIChat = () => {
                 {isLoadingConversations ? 'Loading conversations...' : 'Select a conversation'}
               </Typography>
             </MenuItem>
+            {/* Search input for filtering conversations */}
+            <Box sx={{ px: 1, py: 0.5 }}>
+              <TextField
+                size="small"
+                placeholder="Search conversations..."
+                value={conversationSearch}
+                onChange={(e) => setConversationSearch(e.target.value)}
+                onClick={(e) => e.stopPropagation()}
+                onKeyDown={(e) => e.stopPropagation()}
+                fullWidth
+                InputProps={{
+                  startAdornment: (
+                    <InputAdornment position="start">
+                      <SearchIcon sx={{ fontSize: 18, color: 'text.secondary' }} />
+                    </InputAdornment>
+                  ),
+                  sx: { fontSize: '0.8rem', height: 32 }
+                }}
+                sx={{
+                  '& .MuiOutlinedInput-root': {
+                    borderRadius: 1,
+                    bgcolor: 'rgba(0,0,0,0.02)'
+                  }
+                }}
+              />
+            </Box>
             <Divider sx={{ my: 0.5 }} />
-            {conversations.length === 0 && !isLoadingConversations ? (
+            {conversations.filter(c =>
+              !conversationSearch ||
+              (c.title || '').toLowerCase().includes(conversationSearch.toLowerCase())
+            ).length === 0 && !isLoadingConversations ? (
               <MenuItem disabled>
                 <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', width: '100%', py: 1.5 }}>
                   <ChatIcon sx={{ fontSize: 30, color: 'text.disabled', mb: 0.75, opacity: 0.3 }} />
@@ -490,9 +542,14 @@ const AIChat = () => {
                 </Box>
               </MenuItem>
             ) : (
-              conversations.map((conv) => (
-                <MenuItem 
-                  key={conv.conversation_id} 
+              conversations
+                .filter(c =>
+                  !conversationSearch ||
+                  (c.title || '').toLowerCase().includes(conversationSearch.toLowerCase())
+                )
+                .map((conv) => (
+                <MenuItem
+                  key={conv.conversation_id}
                   value={conv.conversation_id}
                   sx={{
                     borderRadius: 1,

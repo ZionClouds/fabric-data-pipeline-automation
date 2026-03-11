@@ -80,9 +80,9 @@ export const pipelineApi = {
   getSourcePreview: (sourceId, table) => api.get(`/api/sources/${sourceId}/preview?table=${table}`),
   saveConnection: (data) => api.post('/api/sources/save', data),
 
-  // AI Chat
+  // AI Chat (Multi-Agent Pipeline Architect)
   chat: (data) => api.post('/api/ai/chat', data),
-  chatTemporary: (data) => api.post('/api/ai/chat-temp', data),
+  resetChatSession: (data) => api.post('/api/ai/chat/reset', data),
   clearConversation: (conversationId) => api.delete(`/api/conversations/${conversationId}/messages`),
   getConversationHistory: (pipelineId) => api.get(`/api/ai/conversations/${pipelineId}`),
 
@@ -96,6 +96,18 @@ export const pipelineApi = {
     return api.patch(`/api/conversations/${conversationId}?${params.toString()}`);
   },
   deleteConversation: (conversationId) => api.delete(`/api/conversations/${conversationId}`),
+
+  // Additional Conversation Management
+  bulkDeleteConversations: (conversationIds) => api.post('/api/conversations/bulk-delete', { conversation_ids: conversationIds }),
+  archiveConversation: (conversationId) => api.post(`/api/conversations/${conversationId}/archive`),
+  restoreConversation: (conversationId) => api.post(`/api/conversations/${conversationId}/restore`),
+  searchConversations: (query, userEmail, limit = 20) => {
+    const params = new URLSearchParams({ q: query });
+    if (userEmail) params.append('user_email', userEmail);
+    if (limit) params.append('limit', limit);
+    return api.get(`/api/conversations/search?${params.toString()}`);
+  },
+  deleteAllUserConversations: (userEmail) => api.delete(`/api/conversations/user/${userEmail}?confirm=true`),
 
   // Pipeline Design
   generatePipeline: (data) => api.post('/api/pipelines/generate', data),

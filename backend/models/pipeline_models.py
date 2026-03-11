@@ -10,6 +10,11 @@ class SourceType(str, Enum):
     DB2 = "db2"
     SQL_SERVER = "sql_server"
     REST_API = "rest_api"
+    POSTGRESQL = "postgresql"
+    MYSQL = "mysql"
+    ORACLE = "oracle"
+    SHAREPOINT = "sharepoint"
+    ONPREMISE = "onpremise"
 
 class PipelineStatus(str, Enum):
     DRAFT = "draft"
@@ -81,15 +86,20 @@ class TransformationRequest(BaseModel):
 class PipelineGenerateRequest(BaseModel):
     workspace_id: str
     pipeline_name: str
-    source_type: SourceType
-    source_config: Dict[str, Any]
-    tables: List[str]
-    transformations: List[TransformationRequest]
+    source_type: str  # Made flexible - accepts any string
+    source_config: Optional[Dict[str, Any]] = None
+    tables: Optional[List[str]] = None
+    transformations: Optional[List[Dict[str, Any]]] = None  # Made flexible - accepts any dict
     use_medallion: bool = True
     schedule: str = "manual"
     created_by: str
     lakehouse_name: Optional[str] = None  # Selected lakehouse from dropdown
     warehouse_name: Optional[str] = None  # Selected warehouse from dropdown
+    pii_detection: Optional[bool] = None  # Added for PII/PHI detection
+    pii_masking_type: Optional[str] = None  # Added for masking type
+
+    class Config:
+        extra = "allow"  # Allow extra fields
 
 class PipelineDeployRequest(BaseModel):
     pipeline_id: int
@@ -112,6 +122,7 @@ class ChatResponse(BaseModel):
     content: str
     suggestions: Optional[List[str]] = None
     pipeline_preview: Optional[Dict[str, Any]] = None
+    pipeline_config: Optional[Dict[str, Any]] = None  # Collected pipeline configuration from AI chat
     shortcut_info: Optional[Dict[str, Any]] = None  # Info about created shortcuts
     needs_confirmation: Optional[bool] = None  # Flag if waiting for user confirmation
     confirmation_action: Optional[str] = None  # What action needs confirmation (e.g., "create_shortcut")
@@ -138,6 +149,7 @@ class PipelineGenerateResponse(BaseModel):
     notebooks: List[NotebookCode]
     fabric_pipeline_json: Dict[str, Any]
     reasoning: str
+    job_id: Optional[str] = None  # Job ID for deployment
 
 class PipelineDeployResponse(BaseModel):
     success: bool

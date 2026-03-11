@@ -12,15 +12,14 @@ import certifi
 import os
 import asyncio
 import random
+import re
+import json
 from datetime import datetime
 
 # Import settings and services
 import settings
-from services.claude_ai_service import ClaudeAIService
-from services.azure_openai_service import AzureOpenAIService
 from services.azure_ai_agent_service import AzureAIAgentService
 from services.fabric_api_service import FabricAPIService
-from services.conversation_context import context_manager
 from services.proactive_suggestions import proactive_service
 from services.medallion_architect import medallion_service
 from models.pipeline_models import (
@@ -31,9 +30,6 @@ from models.pipeline_models import (
     ConnectionConfig, PipelineArchitecture, LayerConfig,
     FileProcessingPipelineRequest, FileProcessingPipelineResponse
 )
-
-# Import fabric deployment router
-from fabric_deployment_endpoint import router as fabric_router
 
 # Import conversation endpoints router
 from conversation_endpoints import router as conversation_router
@@ -47,6 +43,60 @@ generated_pipelines = {}
 # Setup logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# Import SDK agents (primary implementation)
+from services.agents_sdk import (
+    PipelineAgentRunner,
+    initialize_runner,
+    get_runner,
+)
+logger.info("OpenAI Agents SDK loaded successfully")
+
+
+def extract_pipeline_config(content: str) -> Optional[Dict[str, Any]]:
+    """
+    Extract PIPELINE_CONFIG JSON block from AI response content.
+
+    Args:
+        content: The AI response content
+
+    Returns:
+        Parsed pipeline config dict or None if not found
+    """
+    try:
+        # Look for ```PIPELINE_CONFIG ... ``` block
+        pattern = r'```PIPELINE_CONFIG\s*\n([\s\S]*?)\n```'
+        match = re.search(pattern, content)
+
+        if match:
+            json_str = match.group(1).strip()
+            config = json.loads(json_str)
+            logger.info(f"Extracted pipeline config: {config}")
+            return config
+
+        return None
+    except json.JSONDecodeError as e:
+        logger.error(f"Failed to parse pipeline config JSON: {e}")
+        return None
+    except Exception as e:
+        logger.error(f"Error extracting pipeline config: {e}")
+        return None
+
+
+def clean_ai_response(content: str) -> str:
+    """
+    Remove PIPELINE_CONFIG JSON block from AI response for cleaner display.
+
+    Args:
+        content: The AI response content
+
+    Returns:
+        Content without the PIPELINE_CONFIG block
+    """
+    # Remove ```PIPELINE_CONFIG ... ``` blocks
+    pattern = r'\n*```PIPELINE_CONFIG\s*\n[\s\S]*?\n```\n*'
+    cleaned = re.sub(pattern, '', content)
+    return cleaned.strip()
 
 # Create FastAPI app
 app = FastAPI(
@@ -65,13 +115,12 @@ app.add_middleware(
 )
 
 # Include routers
-app.include_router(fabric_router)
 app.include_router(conversation_router)
 
 # Startup event to initialize database
 @app.on_event("startup")
 async def startup_event():
-    """Initialize database on startup"""
+    """Initialize database and SDK agents on startup"""
     try:
         logger.info("Initializing database...")
         init_database(settings.DATABASE_URL)
@@ -89,21 +138,26 @@ async def startup_event():
         import traceback
         traceback.print_exc()
 
+    # Initialize SDK agents
+    try:
+        logger.info("Initializing OpenAI Agents SDK...")
+        initialize_runner(
+            model=settings.AZURE_OPENAI_DEPLOYMENT or "gpt-4o-mini",
+            temperature=0.7,
+            max_tokens=4096,
+            fabric_service=fabric_service,
+        )
+        logger.info("[OK] OpenAI Agents SDK initialized successfully")
+    except Exception as e:
+        logger.error(f"Failed to initialize SDK agents: {str(e)}")
+        import traceback
+        traceback.print_exc()
+
 # Initialize services
-claude_service = ClaudeAIService()
 fabric_service = FabricAPIService()
 
-# Initialize Azure OpenAI service (GPT-5 with Bing Search)
-azure_openai_service = AzureOpenAIService(
-    azure_endpoint=settings.AZURE_OPENAI_ENDPOINT,
-    api_key=settings.AZURE_OPENAI_API_KEY,
-    deployment_name=settings.AZURE_OPENAI_DEPLOYMENT,
-    api_version=settings.AZURE_OPENAI_API_VERSION,
-    bing_api_key=settings.BING_SEARCH_API_KEY,
-    bing_endpoint=settings.BING_SEARCH_ENDPOINT
-)
-
 # Initialize Azure AI Agent service (GPT-4o-mini with Bing Grounding via Agents)
+# Used for proactive suggestions and medallion architect services
 agent_service = AzureAIAgentService(
     project_endpoint=settings.AZURE_AI_PROJECT_ENDPOINT,
     api_key=settings.AZURE_OPENAI_API_KEY,
@@ -231,9 +285,23 @@ async def validate_token(credentials: HTTPAuthorizationCredentials = Depends(sec
     """
     Validate Microsoft Azure AD JWT token
     """
-    # Development mode: bypass authentication
+    # Development mode: try to decode token for user info, but don't require valid token
     if settings.DISABLE_AUTH is True or settings.DISABLE_AUTH == "true":
         logger.info("Development mode: bypassing authentication")
+        # Try to extract user info from token if provided
+        if credentials and credentials.credentials:
+            try:
+                # Decode without verification to get user info
+                token = credentials.credentials
+                # Decode without verification (development only)
+                payload = jwt.decode(token, options={"verify_signature": False})
+                user_email = payload.get("preferred_username") or payload.get("upn") or payload.get("email")
+                user_name = payload.get("name")
+                if user_email:
+                    logger.info(f"Development mode: using token user {user_email}")
+                    return {"email": user_email, "name": user_name or "Development User", "oid": payload.get("oid", "dev-user-id")}
+            except Exception as e:
+                logger.debug(f"Development mode: could not decode token: {e}")
         return {"email": "dev@example.com", "name": "Development User", "oid": "dev-user-id"}
 
     if credentials is None:
@@ -458,12 +526,15 @@ async def create_blob_storage_shortcuts(workspace_id: str) -> Dict[str, Any]:
 async def root():
     return {
         "name": "Pipeline Builder API",
-        "version": "1.0.0",
+        "version": "2.0.0",
         "status": "running",
-        "claude_model": settings.CLAUDE_MODEL,
         "azure_openai_model": settings.AZURE_OPENAI_DEPLOYMENT,
-        "azure_ai_agent_enabled": True,
-        "bing_grounding_enabled": bool(settings.BING_GROUNDING_CONNECTION_ID)
+        "bing_grounding_enabled": bool(settings.BING_GROUNDING_CONNECTION_ID),
+        "multi_agent_sdk": "openai-agents",
+        "endpoints": {
+            "chat": "/api/ai/chat",
+            "reset": "/api/ai/chat/reset",
+        }
     }
 
 # Health check
@@ -491,76 +562,41 @@ async def clear_conversation(conversation_id: str, user: dict = Depends(validate
         logger.error(f"Error clearing conversation: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to clear conversation: {str(e)}")
 
-# Temporary chat endpoint (no database persistence)
-@app.post("/api/ai/chat-temp", response_model=ChatResponse)
-async def chat_temp(request: ChatRequest, user: dict = Depends(validate_token)):
-    """
-    Temporary chat endpoint that does not persist messages to database
 
-    This endpoint provides the same AI functionality as /api/ai/chat but
-    without storing conversation history in the database.
-    """
-    try:
-        logger.info(f"Temporary chat request for workspace: {request.workspace_id} by user: {user['email']}")
-
-        # Get or create conversation context for this user (in-memory only)
-        session_id = f"temp_{user['email']}_{request.workspace_id}"
-        conv_context = context_manager.get_context(session_id)
-
-        # Get the last user message
-        user_message = None
-        for msg in reversed(request.messages):
-            if msg.role == "user":
-                user_message = msg.content
-                break
-
-        if not user_message:
-            raise HTTPException(status_code=400, detail="No user message found")
-
-        # Store messages in context (in-memory)
-        for msg in request.messages:
-            conv_context.add_message(msg.role, msg.content)
-
-        # Call Azure AI Agent with Bing Grounding
-        ai_response = await call_azure_ai_agent(
-            user_message=user_message,
-            conversation_history=request.messages,
-            workspace_id=request.workspace_id,
-            lakehouse_id=request.lakehouse_id if hasattr(request, 'lakehouse_id') else None
-        )
-
-        # Add AI response to context
-        conv_context.add_message("assistant", ai_response)
-
-        logger.info(f"Temporary chat completed successfully for user: {user['email']}")
-
-        return ChatResponse(
-            response=ai_response,
-            conversation_id=None,  # No conversation ID for temporary chat
-            message_id=None
-        )
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Temporary chat error: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Chat error: {str(e)}")
-
-# AI Chat endpoint (GPT-4o-mini with Bing Grounding via Azure AI Agents - Primary AI)
+# Multi-Agent Pipeline Architect Chat (SDK-based)
 @app.post("/api/ai/chat", response_model=ChatResponse)
-async def chat_with_ai(request: ChatRequest, user: dict = Depends(validate_token)):
+async def chat_with_pipeline_architect(request: ChatRequest, user: dict = Depends(validate_token)):
     """
-    PROACTIVE Pipeline Architect Chat with Bing Grounding
+    Multi-Agent Pipeline Architect Chat
 
-    This endpoint uses GPT-4o-mini with Bing Grounding to provide PROACTIVE guidance
-    for building Microsoft Fabric pipelines. The agent:
-    - Automatically searches for latest best practices
-    - Proactively suggests optimizations
-    - Tracks conversation context
-    - Interrupts with important recommendations
+    This endpoint uses the OpenAI Agents SDK for multi-agent orchestration.
+    Features:
+    - Automatic agent routing based on conversation stage
+    - Built-in handoffs between specialized agents
+    - Production guardrails for safety
+    - Tracing and metrics collection
+
+    Agents:
+    - Discovery Agent: Understands business context and requirements
+    - Source Analyst: Expert on source systems and connections
+    - Fabric Architect: Designs optimal pipeline architecture
+    - Transform Expert: Plans data transformations and PII handling
+    - Deploy Agent: Generates deployment packages
     """
     try:
-        logger.info(f"Proactive Agent chat request for workspace: {request.workspace_id} by user: {user['email']}")
+        logger.info(f"SDK chat request for workspace: {request.workspace_id} by user: {user['email']}")
+
+        # Validate required selections
+        if not request.lakehouse_name or not request.warehouse_name:
+            return ChatResponse(
+                role="assistant",
+                content="**Please select a Lakehouse and Warehouse above to continue.**\n\nI need to know which lakehouse and warehouse to use for your pipeline. Please select them from the dropdowns at the top of the page.",
+                suggestions=None,
+                pipeline_preview=None,
+                shortcut_info=None,
+                needs_confirmation=False,
+                confirmation_action=None
+            )
 
         # Get or create database conversation
         conversation_id = get_or_create_conversation(
@@ -569,10 +605,6 @@ async def chat_with_ai(request: ChatRequest, user: dict = Depends(validate_token
             lakehouse_id=request.lakehouse_id if hasattr(request, 'lakehouse_id') else None
         )
 
-        # Get or create conversation context for this user
-        session_id = f"{user['email']}_{request.workspace_id}"
-        conv_context = context_manager.get_context(session_id)
-
         # Get the last user message
         user_message = None
         for msg in reversed(request.messages):
@@ -582,7 +614,6 @@ async def chat_with_ai(request: ChatRequest, user: dict = Depends(validate_token
 
         if not user_message:
             raise HTTPException(status_code=400, detail="No user message found")
-
 
         # Save user message to database
         save_chat_message(
@@ -592,670 +623,111 @@ async def chat_with_ai(request: ChatRequest, user: dict = Depends(validate_token
             metadata={"workspace_id": request.workspace_id}
         )
 
-        # Prepare lowercase version for keyword detection
-        user_message_lower = user_message.lower()
-
-
-        # Update conversation context with user message
-        conv_context.update_context(user_message)
-
-        # BLOCK CHAT IF REQUIRED SELECTIONS ARE MISSING
-        if not request.lakehouse_name or not request.warehouse_name:
-            return ChatResponse(
-                role="assistant",
-                content="⚠️ **Please select a Lakehouse and Warehouse above to continue.**\n\nI need to know which lakehouse and warehouse to use for your pipeline. Please select them from the dropdowns at the top of the page.",
-                suggestions=None,
-                pipeline_preview=None,
-                shortcut_info=None,
-                needs_confirmation=False,
-                confirmation_action=None
-            )
-
-        # DETECT DROPDOWN CHANGES (mid-conversation update)
-        stored_lakehouse = conv_context.context.get("lakehouse_name")
-        stored_warehouse = conv_context.context.get("warehouse_name")
-
-        if stored_lakehouse and stored_lakehouse != request.lakehouse_name:
-            logger.info(f"Lakehouse changed from {stored_lakehouse} to {request.lakehouse_name}")
-            conv_context.context["lakehouse_name"] = request.lakehouse_name
-
-        if stored_warehouse and stored_warehouse != request.warehouse_name:
-            logger.info(f"Warehouse changed from {stored_warehouse} to {request.warehouse_name}")
-            conv_context.context["warehouse_name"] = request.warehouse_name
-
-        # ALWAYS CONFIRM SELECTIONS (even if pre-selected)
-        if not stored_lakehouse or not stored_warehouse:
-            # First time seeing these selections - store them in context
-            conv_context.context["lakehouse_name"] = request.lakehouse_name
-            conv_context.context["warehouse_name"] = request.warehouse_name
-            # Don't set pending state - let the blob detection or normal flow handle the message
-
-        # CHECK FOR PENDING CONFIRMATION (Shortcut Creation)
-        pending = conv_context.get_pending_confirmation()
-
-        if pending and pending["action"] == "create_shortcut":
-            # User is responding to shortcut creation confirmation
-            if conv_context.is_user_confirming(user_message):
-                # User confirmed - create shortcuts
-                logger.info("User confirmed shortcut creation. Creating shortcuts...")
-
-                shortcut_result = await create_blob_storage_shortcuts(request.workspace_id)
-
-                conv_context.clear_pending_confirmation()
-
-                if shortcut_result["success"]:
-                    # Store shortcut information in conversation context
-                    conv_context.set_shortcuts(shortcut_result)
-                    logger.info(f"Stored shortcut info in conversation context: {shortcut_result.get('lakehouse_name')}")
-
-                    # Success response
-                    shortcuts_info = "\n".join([
-                        f"  • **{s['name']}** → {s['path']} (container: {s['container']})"
-                        for s in shortcut_result["shortcuts"]
-                    ])
-
-                    # Check if shortcuts already existed or were just created
-                    if shortcut_result.get("already_exists"):
-                        success_message = f"""Shortcuts Already Set Up!
-
-Good news! Your lakehouse already has shortcuts configured:
-
-Storage Account: {shortcut_result['storage_account']}
-Lakehouse: {shortcut_result['lakehouse_name']}
-
-Available Shortcuts:
-{shortcuts_info}
-
-Your data is ready to use! Would you like me to help you create a pipeline to process this data?"""
-                    else:
-                        success_message = f"""Shortcuts Created Successfully!
-
-I've created OneLake shortcuts for your Azure Blob Storage:
-
-Storage Account: {shortcut_result['storage_account']}
-Lakehouse: {shortcut_result['lakehouse_name']}
-Connection: {shortcut_result.get('connection_name', 'N/A')}
-
-Shortcuts Created:
-{shortcuts_info}
-
-You can now access your data directly in the lakehouse! Would you like me to help you create a pipeline to process this data?"""
-
-                    # Save assistant message
-                    save_chat_message(conversation_id, "assistant", success_message)
-
-                    return ChatResponse(
-                        role="assistant",
-                        content=success_message,
-                        suggestions=["Create a pipeline", "Browse the data", "Add transformations"],
-                        pipeline_preview=None,
-                        shortcut_info=shortcut_result,
-                        needs_confirmation=False,
-                        confirmation_action=None,
-                        conversation_id=conversation_id
-                    )
-                else:
-                    # Error response
-                    error_message = f"""[FAILED] **Failed to Create Shortcuts**
-
-{shortcut_result.get('message', 'Unknown error')}
-
-Error details: {shortcut_result.get('error', 'None')}
-
-Would you like me to provide manual instructions instead?"""
-
-                    # Save assistant message
-                    save_chat_message(conversation_id, "assistant", error_message)
-
-                    return ChatResponse(
-                        role="assistant",
-                        content=error_message,
-                        suggestions=["Show manual steps", "Try again", "Contact support"],
-                        pipeline_preview=None,
-                        shortcut_info=None,
-                        needs_confirmation=False,
-                        confirmation_action=None,
-                        conversation_id=conversation_id
-                    )
-            else:
-                # User declined
-                conv_context.clear_pending_confirmation()
-                logger.info("User declined shortcut creation")
-
-                return ChatResponse(
-                    role="assistant",
-                    content="No problem! Let me know if you'd like to create shortcuts later or if you need help with something else.",
-                    suggestions=None,
-                    pipeline_preview=None,
-                    shortcut_info=None,
-                    needs_confirmation=False,
-                    confirmation_action=None
-                )
-
-        # CHECK FOR PENDING DEPLOYMENT PARAMETER COLLECTION
-        if pending and pending["action"] == "collect_deployment_params":
-            # User is providing deployment parameters step by step
-            step = pending.get("data", {}).get("step")
-            deployment_config = pending.get("data", {}).get("config", {})
-
-            if step == "source_folder":
-                # Store source folder and ask for output folder
-                # Clean input: remove backticks, quotes, and extra whitespace
-                cleaned_input = user_message.strip().strip('`').strip('"').strip("'")
-                deployment_config["source_folder"] = cleaned_input
-                conv_context.set_pending_confirmation("collect_deployment_params", {
-                    "workspace_id": request.workspace_id,
-                    "step": "output_folder",
-                    "config": deployment_config
-                })
-
-                response = f"""Great! What's the **silver layer folder name** where processed data should be written? (e.g., "silver", "processed", "curated")"""
-
-                # Add natural delay for better UX
-                await asyncio.sleep(random.uniform(2, 3))
-
-                return ChatResponse(
-                    role="assistant",
-                    content=response,
-                    suggestions=["silver", "processed", "curated"],
-                    pipeline_preview=None,
-                    shortcut_info=None,
-                    needs_confirmation=False,
-                    confirmation_action=None
-                )
-
-            elif step == "output_folder":
-                # Store output folder and ask for table name
-                # Clean input: remove backticks, quotes, and extra whitespace
-                cleaned_input = user_message.strip().strip('`').strip('"').strip("'")
-                deployment_config["output_folder"] = cleaned_input
-                conv_context.set_pending_confirmation("collect_deployment_params", {
-                    "workspace_id": request.workspace_id,
-                    "step": "table_name",
-                    "config": deployment_config
-                })
-
-                response = f"""What should be the **table name** in the lakehouse where the actual data will be stored? (e.g., "claims_data", "patient_records", "sales_transactions")"""
-
-                # Add natural delay for better UX
-                await asyncio.sleep(random.uniform(2, 3))
-
-                return ChatResponse(
-                    role="assistant",
-                    content=response,
-                    suggestions=["claims_data", "patient_records", "sales_data"],
-                    pipeline_preview=None,
-                    shortcut_info=None,
-                    needs_confirmation=False,
-                    confirmation_action=None
-                )
-
-            elif step == "table_name":
-                # Store table name and ask for pipeline name
-                # Clean input: remove backticks, quotes, and extra whitespace
-                cleaned_input = user_message.strip().strip('`').strip('"').strip("'")
-                deployment_config["table_name"] = cleaned_input
-
-                conv_context.set_pending_confirmation("collect_deployment_params", {
-                    "workspace_id": request.workspace_id,
-                    "step": "pipeline_name",
-                    "config": deployment_config
-                })
-
-                response = f"""What should I name this pipeline? (e.g., "PIIDetectionPipeline", "CSVProcessingPipeline", "DataIngestionPipeline")"""
-
-                # Add natural delay for better UX
-                await asyncio.sleep(random.uniform(2, 3))
-
-                return ChatResponse(
-                    role="assistant",
-                    content=response,
-                    suggestions=["PIIDetectionPipeline", "CSVProcessingPipeline", "DataIngestionPipeline"],
-                    pipeline_preview=None,
-                    shortcut_info=None,
-                    needs_confirmation=False,
-                    confirmation_action=None
-                )
-
-            elif step == "pii_phi_detection":
-                # Store PII/PHI detection preference and ask for pipeline name
-                pii_phi_needed = conv_context.is_user_confirming(user_message)
-                deployment_config["pii_phi_detection"] = pii_phi_needed
-                conv_context.set_pending_confirmation("collect_deployment_params", {
-                    "workspace_id": request.workspace_id,
-                    "step": "pipeline_name",
-                    "config": deployment_config
-                })
-
-                response = f"""What should I name this pipeline? (e.g., "DataProcessingPipeline", "CSVLoader", "PIIDetectionPipeline")"""
-
-                return ChatResponse(
-                    role="assistant",
-                    content=response,
-                    suggestions=["DataProcessingPipeline", "CSVLoader", "PIIDetectionPipeline"],
-                    pipeline_preview=None,
-                    shortcut_info=None,
-                    needs_confirmation=False,
-                    confirmation_action=None
-                )
-
-            elif step == "pipeline_name":
-                # Store pipeline name and show summary
-                # Clean input: remove backticks, quotes, and extra whitespace
-                cleaned_input = user_message.strip().strip('`').strip('"').strip("'")
-                deployment_config["pipeline_name"] = cleaned_input
-                pii_phi_needed = deployment_config.get("pii_phi_detection", True)
-
-                # Build pipeline activities description
-                pipeline_activities_summary = f"""### Pipeline Activities:
-
-1. **Get Metadata Activity** - Lists all CSV files from `Files/{deployment_config.get('source_folder')}`
-2. **GetProcessedFileNames (Script)** - Queries `processedfiles` table to filter already-processed files
-3. **FilterNewFiles (Filter)** - Only new files proceed to processing
-4. **forEach Loop** - For each new file:
-   - **PHI_PII_detection Notebook**:
-     - Reads CSV from `Files/{deployment_config.get('source_folder')}/{{filename}}`
-     - Detects PII/PHI patterns (SSN, Member ID, DOB, Email, Phone)
-     - Joins with prior authorization data
-     - Writes output to `Files/{deployment_config.get('output_folder')}`
-     - Data will be stored in lakehouse table: `{deployment_config.get('table_name')}`"""
-
-                # Show configuration summary
-                summary_message = f"""## Configuration Complete! ✅
-
-### Configuration Summary:
-
-**Workspace Details:**
-- Workspace: `{deployment_config.get('workspace_id')}`
-- Lakehouse: `{deployment_config.get('lakehouse_name')}`
-- Warehouse: `{deployment_config.get('warehouse_name')}`
-
-**Pipeline Configuration:**
-- Pipeline Name: `{deployment_config.get('pipeline_name')}`
-- Ingestion Folder: `Files/{deployment_config.get('source_folder')}`
-- Silver Layer Folder: `Files/{deployment_config.get('output_folder')}`
-- Target Table: `{deployment_config.get('table_name')}`
-- PII/PHI Detection: **Enabled**
-
-{pipeline_activities_summary}
-
----
-
-### Next Step:
-**Go to the Pipeline Preview page and click the "Deploy" button** to create this pipeline in your workspace."""
-
-                # Clear pending state - we're done collecting values
-                conv_context.clear_pending_confirmation()
-
-                # Add natural delay for better UX (slightly longer for summary)
-                await asyncio.sleep(random.uniform(2.5, 3.5))
-
-                return ChatResponse(
-                    role="assistant",
-                    content=summary_message,
-                    suggestions=["Go to Pipeline Preview"],
-                    pipeline_preview=None,
-                    shortcut_info=None,
-                    needs_confirmation=False,
-                    confirmation_action=None,
-                    pipeline_name=deployment_config.get('pipeline_name')
-                )
-
-        # CHECK FOR PENDING APPROACH SELECTION
-        if pending and pending["action"] == "select_approach":
-            # User is selecting between Option 1, 2, or 3
-            deployment_config = pending.get("data", {}).get("config", {})
-
-            # Detect which option user selected
-            option_selected = None
-            if "option 1" in user_message_lower or "option1" in user_message_lower or "copy activity" in user_message_lower:
-                option_selected = 1
-            elif "option 2" in user_message_lower or "option2" in user_message_lower or "dataflow" in user_message_lower:
-                option_selected = 2
-            elif "option 3" in user_message_lower or "option3" in user_message_lower or "notebook" in user_message_lower:
-                option_selected = 3
-
-            if not option_selected:
-                # User didn't specify a valid option - re-show descriptions
-                clarification_message = """I didn't catch which option you'd like. Please choose one:
-
-**Option 1: Simple Load (Copy Activity)**
-- Use when you only need to load data without transformation
-- Fast and straightforward ingestion
-- Limited transformation capabilities
-
-**Option 2: Light Transformation (Dataflow Gen2)**
-- Use for light transformations like filtering or data type changes
-- Visual interface, no coding required
-- Good for small to medium complexity
-
-**Option 3: Complex Transformation (Notebook with PySpark)**
-- Use for complex transformations and business logic
-- Full flexibility with PySpark
-- Includes PHI/PII detection capabilities
-
-Which approach would you like to use?"""
-
-                return ChatResponse(
-                    role="assistant",
-                    content=clarification_message,
-                    suggestions=["option 1", "option 2", "option 3"],
-                    pipeline_preview=None,
-                    shortcut_info=None,
-                    needs_confirmation=False,
-                    confirmation_action=None
-                )
-
-            # Store selected option
-            deployment_config["selected_option"] = option_selected
-
-            if option_selected == 3:
-                # User selected Option 3 (Notebook) - Go directly to parameter collection
-                logger.info("Option 3 selected - starting parameter collection")
-
-                confirmation_message = f"""Perfect! I'll create a data pipeline with PySpark transformation using:
-- **Workspace:** {deployment_config.get('workspace_id')}
-- **Lakehouse:** {deployment_config.get('lakehouse_name')}
-- **Warehouse:** {deployment_config.get('warehouse_name')}
-
-Now let's configure the pipeline parameters.
-
-What's the **ingestion folder name** where your CSV files are located? (e.g., "bronze", "incoming", "raw-data")
-
-Note: This should be the folder in your lakehouse where shortcuts to Azure Blob Storage CSV files are accessible."""
-
-                # Continue to deployment parameter collection
-                deployment_config["pii_phi_detection"] = True
-                conv_context.set_pending_confirmation("collect_deployment_params", {
-                    "workspace_id": deployment_config.get("workspace_id"),
-                    "step": "source_folder",
-                    "config": deployment_config
-                })
-
-                # Add natural delay for better UX
-                await asyncio.sleep(random.uniform(2, 3))
-
-                return ChatResponse(
-                    role="assistant",
-                    content=confirmation_message,
-                    suggestions=["bronze", "incoming", "raw-data"],
-                    pipeline_preview=None,
-                    shortcut_info=None,
-                    needs_confirmation=False,
-                    confirmation_action=None
-                )
-            else:
-                # User selected Option 1 or 2 - For now, show a message
-                # (You can expand this later for actual Copy Activity or Dataflow implementation)
-                conv_context.clear_pending_confirmation()
-
-                approach_name = "Copy Activity" if option_selected == 1 else "Dataflow Gen2"
-                response_message = f"""You've selected **Option {option_selected}: {approach_name}**.
-
-This approach is currently under development. For now, I recommend using **Option 3 (Notebook with PySpark)** which includes PHI/PII detection capabilities.
-
-Would you like to try Option 3 instead?"""
-
-                return ChatResponse(
-                    role="assistant",
-                    content=response_message,
-                    suggestions=["Yes, use option 3", "Tell me more about option 3"],
-                    pipeline_preview=None,
-                    shortcut_info=None,
-                    needs_confirmation=False,
-                    confirmation_action=None
-                )
-
-        # PHI/PII confirmation step removed - going directly to parameter collection from option 3
-
-        # Note: Deployment is now handled by the /api/pipelines/generate endpoint
-        # The chat just collects parameters and redirects to Pipeline Preview
-
-        # DETECT BLOB STORAGE / CSV LOADING MENTION (If not already pending)
-        blob_keywords = ["azure blob", "blob storage", "azure storage", "storage account", "csv files", "load csv", "loading csv"]
-        blob_detected = any(keyword in user_message_lower for keyword in blob_keywords)
-
-        if blob_detected and not pending:
-            # User mentioned blob storage or CSV loading - present 3 architectural options
-            logger.info("Blob storage/CSV loading detected - presenting architectural options...")
-
-            # Store initial config for later use
-            deployment_config = {
-                "lakehouse_name": request.lakehouse_name,
-                "warehouse_name": request.warehouse_name,
-                "workspace_id": request.workspace_id
-            }
-
-            # Set pending state for option selection
-            conv_context.set_pending_confirmation("select_approach", {
-                "workspace_id": request.workspace_id,
-                "config": deployment_config
-            })
-
-            options_message = f"""Perfect! I can see you've selected:
-- **Workspace:** {request.workspace_id}
-- **Lakehouse:** {request.lakehouse_name}
-- **Warehouse:** {request.warehouse_name}
-
-To load CSV files from Blob Storage, I can help you with different architectural approaches:
-
-**Option 1: Simple Load (Copy Activity)**
-- Use when you only need to load data without transformation
-- Fast and straightforward ingestion
-- Limited transformation capabilities
-
-**Option 2: Light Transformation (Dataflow Gen2)**
-- Use for light transformations like filtering or data type changes
-- Visual interface, no coding required
-- Good for small to medium complexity
-
-**Option 3: Complex Transformation (Notebook with PySpark)**
-- Use for complex transformations and business logic
-- Full flexibility with PySpark
-- Includes PHI/PII detection capabilities
-
-Which approach would you like to use?"""
-
-            # Add natural delay for better UX
-            await asyncio.sleep(random.uniform(2, 3))
-
-            return ChatResponse(
-                role="assistant",
-                content=options_message,
-                suggestions=["option 1", "option 2", "option 3"],
-                pipeline_preview=None,
-                shortcut_info=None,
-                needs_confirmation=False,
-                confirmation_action=None
-            )
-
-        # NORMAL AI CHAT FLOW
-        # Check if we should proactively search for best practices
-        proactive_search_query = conv_context.should_search_for_best_practices()
-
-        # Convert ChatMessage objects to dict format for Azure AI Agent
-        messages = [{"role": msg.role, "content": msg.content} for msg in request.messages]
-
-        # Note: Azure AI Agent only supports 'user' and 'assistant' roles, not 'system'
-        # We'll append instructions to the user message instead if needed
-
-        # Add context information to help the agent be more proactive
-        context_summary = conv_context.get_context_for_agent()
-        if context_summary:
-            # Inject context as a system-level hint
-            messages[-1]["content"] = messages[-1]["content"] + context_summary
-
-        # If we detected source and destination, proactively check for latest updates
-        if proactive_search_query and conv_context.context["current_stage"] == "suggesting":
-            logger.info(f"Proactively searching: {proactive_search_query}")
-
-        # Call Azure AI Agent with Bing Grounding
-        response = await agent_service.chat(
-            messages=messages,
-            context=request.context
+        # Get SDK runner and process message
+        runner = get_runner()
+        response = await runner.run(
+            message=user_message,
+            workspace_id=request.workspace_id,
+            user_id=user['email'],
+            lakehouse_name=request.lakehouse_name,
+            warehouse_name=request.warehouse_name,
         )
 
-        # Update context with agent response
-        conv_context.update_context(user_message, response.get("content", ""))
+        # Extract response components
+        assistant_content = response.message
+        stage = response.stage
+        pipeline_ready = response.pipeline_ready
+        pipeline_config = response.deployment_preview
 
-        logger.info(f"Agent response received. Bing Grounding used: {response.get('bing_grounding_used', False)}")
-        logger.info(f"Conversation stage: {conv_context.context['current_stage']}")
-        logger.info(f"Pipeline context: {conv_context.get_summary()}")
+        # Add stage indicator to response
+        stage_display = {
+            "initial": "Understanding Requirements",
+            "discovery": "Gathering Information",
+            "analyzing": "Analyzing Source & Architecture",
+            "designing": "Designing Pipeline",
+            "reviewing": "Reviewing Design",
+            "deploying": "Ready to Deploy",
+            "completed": "Deployment Ready"
+        }
+
+        # Prepend stage indicator if not in final stages
+        if stage not in ["reviewing", "deploying", "completed"]:
+            stage_info = f"*{stage_display.get(stage, stage)}*\n\n"
+            assistant_content = stage_info + assistant_content
 
         # Save assistant message to database
-        assistant_content = response["content"]
         save_chat_message(
             conversation_id=conversation_id,
             role="assistant",
             content=assistant_content,
             metadata={
-                "bing_grounding_used": response.get('bing_grounding_used', False),
-                "conversation_stage": conv_context.context['current_stage']
+                "stage": stage,
+                "agent": response.agent_name,
+                "pipeline_ready": pipeline_ready,
+                "pipeline_config": pipeline_config,
+                "metrics": response.metrics,
             }
         )
+
+        # Build suggestions based on stage
+        suggestions = None
+        if stage == "reviewing":
+            suggestions = ["Deploy pipeline", "Make changes", "Show more details"]
+        elif stage in ["deploying", "completed"]:
+            suggestions = ["Go to Pipeline Preview", "Deploy to workspace"]
+        elif pipeline_ready:
+            suggestions = ["Deploy pipeline", "Review design"]
 
         return ChatResponse(
             role="assistant",
             content=assistant_content,
-            suggestions=None,
+            suggestions=suggestions,
             pipeline_preview=None,
+            pipeline_config=pipeline_config,
             shortcut_info=None,
-            needs_confirmation=False,
-            confirmation_action=None,
+            needs_confirmation=pipeline_ready,
+            confirmation_action="deploy_pipeline" if pipeline_ready else None,
             conversation_id=conversation_id
         )
 
+    except HTTPException:
+        raise
     except Exception as e:
-        logger.error(f"Proactive Agent chat error: {str(e)}")
+        logger.error(f"SDK chat error: {str(e)}")
+        import traceback
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"AI service error: {str(e)}")
 
 
-# Claude AI endpoint (For notebook code generation only)
-@app.post("/api/ai/claude-chat", response_model=ChatResponse)
-async def chat_with_claude(request: ChatRequest, user: dict = Depends(validate_token)):
-    """
-    Chat with Claude AI - specialized for PySpark notebook code generation
-
-    Use this endpoint specifically when you need:
-    - PySpark notebook code generation
-    - Complex transformation logic
-    - Data quality checks code
-
-    For general pipeline design and latest documentation, use /api/ai/chat (GPT-5)
-    """
+# Reset multi-agent session
+@app.post("/api/ai/chat/reset")
+async def reset_pipeline_architect_session(request: ChatRequest, user: dict = Depends(validate_token)):
+    """Reset the multi-agent session state for a user"""
     try:
-        logger.info(f"Claude chat request for workspace: {request.workspace_id} by user: {user['email']}")
-
-        response = await claude_service.chat(
-            messages=request.messages,
-            context=request.context
-        )
-
-        return ChatResponse(
-            role="assistant",
-            content=response["content"],
-            suggestions=None,
-            pipeline_preview=None
-        )
-
+        runner = get_runner()
+        runner.clear_context(request.workspace_id, user['email'])
+        return {"success": True, "message": "Session reset successfully"}
     except Exception as e:
-        logger.error(f"Claude chat error: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Claude AI service error: {str(e)}")
+        logger.error(f"Session reset error: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
 
-
-# Azure OpenAI Chat endpoint (Duplicate of /api/ai/chat - kept for backward compatibility)
-@app.post("/api/ai/gpt5-chat", response_model=ChatResponse)
-async def chat_with_gpt5(request: ChatRequest, user: dict = Depends(validate_token)):
-    """
-    Chat with Azure OpenAI GPT-5 with Bing Search for latest Fabric documentation
-
-    NOTE: This is now identical to /api/ai/chat endpoint.
-    Use /api/ai/chat as the primary endpoint.
-    This endpoint is kept for backward compatibility.
-    """
-    try:
-        logger.info(f"GPT-5 chat request for workspace: {request.workspace_id} by user: {user['email']}")
-
-        # Convert ChatMessage objects to dict format for Azure OpenAI
-        messages = [{"role": msg.role, "content": msg.content} for msg in request.messages]
-
-        # Add context if provided
-        if request.context:
-            context_str = f"\n\nContext:\n{json.dumps(request.context, indent=2)}"
-            if messages and messages[-1]["role"] == "user":
-                messages[-1]["content"] += context_str
-
-        # Call Azure OpenAI with function calling (Bing Search)
-        response = await azure_openai_service.chat_with_function_calling(
-            messages=messages,
-            max_tokens=settings.AZURE_OPENAI_MAX_TOKENS,
-            temperature=settings.AZURE_OPENAI_TEMPERATURE,
-            enable_search=True
-        )
-
-        return ChatResponse(
-            role="assistant",
-            content=response["content"],
-            suggestions=None,
-            pipeline_preview=None
-        )
-
-    except Exception as e:
-        logger.error(f"GPT-5 chat error: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Azure OpenAI service error: {str(e)}")
-
-
-# Azure OpenAI Simple Chat endpoint (without Bing Search)
-@app.post("/api/ai/gpt5-simple-chat")
-async def simple_chat_with_gpt5(request: ChatRequest, user: dict = Depends(validate_token)):
-    """
-    Simple chat with Azure OpenAI GPT-5 without Bing Search
-
-    Use this for:
-    - General conversations
-    - Code generation
-    - When you don't need latest documentation
-    """
-    try:
-        logger.info(f"GPT-5 simple chat request by user: {user['email']}")
-
-        # Convert ChatMessage objects to dict format
-        messages = [{"role": msg.role, "content": msg.content} for msg in request.messages]
-
-        # Add context if provided
-        if request.context:
-            context_str = f"\n\nContext:\n{json.dumps(request.context, indent=2)}"
-            if messages and messages[-1]["role"] == "user":
-                messages[-1]["content"] += context_str
-
-        # Call Azure OpenAI without function calling
-        response = await azure_openai_service.simple_chat(
-            messages=messages,
-            max_tokens=settings.AZURE_OPENAI_MAX_TOKENS,
-            temperature=settings.AZURE_OPENAI_TEMPERATURE
-        )
-
-        return {
-            "role": "assistant",
-            "content": response["content"],
-            "usage": response["usage"]
-        }
-
-    except Exception as e:
-        logger.error(f"GPT-5 simple chat error: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Azure OpenAI service error: {str(e)}")
 
 # Pipeline generation endpoint
 @app.post("/api/pipelines/generate", response_model=PipelineGenerateResponse)
 async def generate_pipeline(request: PipelineGenerateRequest, user: dict = Depends(validate_token)):
     """
-    Generate complete pipeline from requirements
+    Generate complete pipeline from requirements collected via AI chat.
 
-    For CSV/blob storage pipelines, this uses the hardcoded deployment template.
-    For other pipelines, this uses Claude generation.
+    Uses the source_config to dynamically generate pipeline activities based on:
+    - Source type (PostgreSQL, SQL Server, Blob Storage, etc.)
+    - Transformations required
+    - PII/PHI masking requirements
+    - Schedule
     """
     try:
         logger.info(f"Generating pipeline: {request.pipeline_name} for user: {user['email']}")
+        logger.info(f"Source type: {request.source_type}")
+        logger.info(f"Source config: {request.source_config}")
 
         # Create job for pipeline generation
         db_service = get_db_service()
@@ -1265,7 +737,9 @@ async def generate_pipeline(request: PipelineGenerateRequest, user: dict = Depen
             pipeline_definition=None,
             metadata={
                 "pipeline_name": request.pipeline_name,
-                "user_email": user['email']
+                "user_email": user['email'],
+                "source_type": request.source_type,
+                "source_config": request.source_config
             }
         )
         job_id = job['job_id']
@@ -1277,219 +751,183 @@ async def generate_pipeline(request: PipelineGenerateRequest, user: dict = Depen
             pipeline_generation_status="in_progress"
         )
 
-        # Use the pipeline name directly from the request (now passed from frontend chat context)
-        # Clean the pipeline name: remove backticks, quotes, and extra whitespace
+        # Clean the pipeline name
         pipeline_name = request.pipeline_name.strip().strip('`').strip('"').strip("'").strip()
         logger.info(f"Using pipeline name: {pipeline_name}")
-
-        # JUST GENERATE PREVIEW - Don't deploy yet!
-        logger.info("Generating pipeline preview with hardcoded values")
 
         # Import required models
         from models.pipeline_models import NotebookCode, MedallionLayer, PipelineActivity
         import time
 
-        # Generate pipeline ID for storing in memory
+        # Generate pipeline ID
         pipeline_id = int(time.time())
 
-        # Define full pipeline activities (matching deploy_pipeline_api.py template)
-        activities = [
-            PipelineActivity(
-                name="Get Metadata",
-                type="GetMetadata",
-                config={
-                    "description": "Get metadata of files in the lakehouse source folder",
-                    "fieldList": ["childItems"],
-                    "source": {
-                        "type": "Lakehouse",
-                        "rootFolder": "Files",
-                        "folderPath": "claims"
-                    }
+        # Extract config from source_config (passed from AI chat)
+        source_config = request.source_config or {}
+        source_type = request.source_type or "postgresql"
+        tables = request.tables or []
+        table_name = source_config.get("table_name", tables[0] if tables else "data")
+        destination = source_config.get("destination", "tables")
+        transformations = source_config.get("transformations", "none")
+        pii_masking = source_config.get("pii_masking", "none")
+        schedule = source_config.get("schedule", "manual")
+
+        logger.info(f"Building pipeline for: source={source_type}, table={table_name}, transformations={transformations}, pii={pii_masking}")
+
+        # Generate activities based on user requirements
+        activities = []
+
+        # Activity 1: Copy data from source to OneLake
+        copy_activity = PipelineActivity(
+            name=f"Copy_{source_type}_to_OneLake",
+            type="Copy",
+            config={
+                "description": f"Copy data from {source_type} to OneLake",
+                "source": {
+                    "type": source_type.upper(),
+                    "connection": f"{source_type}_connection",
+                    "query": f"SELECT * FROM {table_name}" if source_type in ["postgresql", "mysql", "sql_server", "oracle", "azure_sql"] else None
                 },
-                depends_on=None
-            ),
-            PipelineActivity(
-                name="GetProcessedFileNames",
-                type="Script",
-                config={
-                    "description": "Query warehouse to get list of already processed files",
-                    "scriptType": "Query",
-                    "query": "SELECT [FileName] FROM [dbo].[processedfiles] WHERE Status = 'Done'",
-                    "database": "jay-dev-warehouse",
-                    "connection": "Warehouse_jay_reddy"
+                "destination": {
+                    "type": "Lakehouse",
+                    "tableName": table_name,
+                    "tableAction": "Overwrite"
                 },
-                depends_on=["Get Metadata"]
-            ),
-            PipelineActivity(
-                name="SetEmptyFileArray",
-                type="SetVariable",
-                config={
-                    "description": "Initialize empty array for processed file names",
-                    "variableName": "ProcessedFileNames",
-                    "value": "[]"
-                },
-                depends_on=["GetProcessedFileNames"]
-            ),
-            PipelineActivity(
-                name="ForEach1",
-                type="ForEach",
-                config={
-                    "description": "Loop through warehouse results to build processed files list",
-                    "items": "@activity('GetProcessedFileNames').output.resultSets[0].rows",
-                    "activities": [
-                        {
-                            "name": "Set variable1",
-                            "type": "SetVariable",
-                            "variableName": "ProcessedFileNames",
-                            "value": "@item().FileName"
-                        }
-                    ]
-                },
-                depends_on=["SetEmptyFileArray"]
-            ),
-            PipelineActivity(
-                name="FilterNewFiles",
-                type="Filter",
-                config={
-                    "description": "Filter out files that have already been processed",
-                    "items": "@activity('Get Metadata').output.childItems",
-                    "condition": "@not(contains(variables('ProcessedFileNames'), item().name))"
-                },
-                depends_on=["ForEach1"]
-            ),
-            PipelineActivity(
-                name="forEach",
-                type="ForEach",
-                config={
-                    "description": "Process each unprocessed file with PII/PHI detection notebook",
-                    "items": "@activity('FilterNewFiles').output.value",
-                    "activities": [
-                        {
-                            "name": "PHI_PII_detection",
-                            "type": "TridentNotebook",
-                            "notebookId": "PHI_PII_detection",
-                            "parameters": {
-                                "fileName": "@item().name"
-                            }
-                        }
-                    ]
-                },
-                depends_on=["FilterNewFiles"]
-            ),
-            PipelineActivity(
-                name="Send PII Alert Notification",
-                type="Office365",
-                config={
-                    "description": "Send email notification if PII/PHI data was detected",
-                    "to": "data-team@company.com",
-                    "subject": "PII/PHI Detection Alert - Pipeline Execution Complete",
-                    "body": "The pipeline has completed processing. Please review the silver layer for detected PII/PHI patterns.",
-                    "importance": "High"
-                },
-                depends_on=["forEach"]
-            ),
-            PipelineActivity(
-                name="Load to OneLake Tables",
+                "enableStaging": False
+            },
+            depends_on=None
+        )
+        activities.append(copy_activity)
+
+        # Activity 2: Add transformation activity if transformations are needed
+        if transformations and transformations.lower() != "none":
+            transform_activity = PipelineActivity(
+                name="Transform_Data",
                 type="DataflowGen2",
                 config={
-                    "description": "Move processed data from silver layer to OneLake tables",
-                    "dataflowName": "Silver_to_OneLake",
+                    "description": f"Apply transformations: {transformations}",
+                    "dataflowName": f"{pipeline_name}_transform",
                     "source": {
                         "type": "Lakehouse",
-                        "layer": "Silver",
-                        "folderPath": "Files/silver"
+                        "tableName": table_name
                     },
+                    "transformations": [transformations],
                     "destination": {
                         "type": "Lakehouse",
-                        "tables": ["processed_claims", "pii_detections"]
-                    },
-                    "transformations": [
-                        "Remove duplicates",
-                        "Data type conversions",
-                        "Partition by date"
-                    ]
+                        "tableName": f"{table_name}_transformed"
+                    }
                 },
-                depends_on=["Send PII Alert Notification"]
+                depends_on=[f"Copy_{source_type}_to_OneLake"]
             )
-        ]
+            activities.append(transform_activity)
 
-        # Import notebook template from deploy_pipeline_api
-        from deploy_pipeline_api import NOTEBOOK_PYTHON_SOURCE_TEMPLATE
+        # Activity 3: Add PII/PHI masking if needed
+        notebooks = []
+        if pii_masking and pii_masking.lower() != "none":
+            masking_activity = PipelineActivity(
+                name="PII_PHI_Masking",
+                type="TridentNotebook",
+                config={
+                    "description": f"Apply {pii_masking} masking to sensitive data",
+                    "notebookId": f"{pipeline_name}_pii_masking",
+                    "parameters": {
+                        "table_name": table_name,
+                        "masking_type": pii_masking
+                    }
+                },
+                depends_on=[activities[-1].name]
+            )
+            activities.append(masking_activity)
 
-        # Format the notebook code with actual folder names
-        notebook_code = NOTEBOOK_PYTHON_SOURCE_TEMPLATE.format(
-            source_folder="bronze",  # Ingestion folder
-            output_folder="silver"    # Processed data folder
-        )
+            # Generate masking notebook code
+            masking_code = f'''# PII/PHI Masking Notebook - {pii_masking} masking
+from pyspark.sql import SparkSession
+from pyspark.sql.functions import col, regexp_replace, sha2, concat, lit
 
-        # Define notebook
-        notebook = NotebookCode(
-            notebook_name="PHI_PII_detection",
-            layer=MedallionLayer.SILVER,
-            code=notebook_code,
-            description="Detects PII/PHI in CSV files from blob storage. Includes pattern detection for SSN, Member ID, DOB, Email, and Phone numbers."
-        )
+spark = SparkSession.builder.appName("PII_Masking").getOrCreate()
 
-        # Generate architectural reasoning/overview
+# Read data
+df = spark.read.format("delta").load("Tables/{table_name}")
+
+# Apply {pii_masking} masking to detected PII columns
+# Email masking
+df = df.withColumn("email",
+    regexp_replace(col("email"), r"(.).*@(.*)\\.(.*)", r"$1***@***.***"))
+
+# Phone masking
+df = df.withColumn("phone",
+    regexp_replace(col("phone"), r"(\\d{{3}})-(\\d{{3}})-(\\d{{4}})", r"$1-***-****"))
+
+# Write masked data
+df.write.format("delta").mode("overwrite").save("Tables/{table_name}_masked")
+print("PII/PHI masking completed successfully!")
+'''
+            notebook = NotebookCode(
+                notebook_name=f"{pipeline_name}_pii_masking",
+                layer=MedallionLayer.SILVER,
+                code=masking_code,
+                description=f"Applies {pii_masking} masking to sensitive PII/PHI data"
+            )
+            notebooks.append(notebook)
+
+        # Generate reasoning based on actual config
         reasoning = f"""## Pipeline Architecture Overview
 
-This pipeline implements a comprehensive data processing solution with PII/PHI detection capabilities, following a medallion architecture pattern for Microsoft Fabric.
+This pipeline transfers data from **{source_type}** to **OneLake** based on your requirements.
+
+### Configuration Summary:
+- **Source**: {source_type} ({source_config.get('source_details', 'on-premise database')})
+- **Destination**: OneLake {destination} → "{table_name}"
+- **Transformations**: {transformations if transformations != 'none' else 'None (direct copy)'}
+- **PII/PHI Masking**: {pii_masking if pii_masking != 'none' else 'None'}
+- **Schedule**: {schedule}
 
 ### Pipeline Flow:
 
-**1. Data Discovery Phase**
-   - **Get Metadata**: Scans the lakehouse source folder (Files/claims) to discover all available CSV files
-   - **GetProcessedFileNames**: Queries the warehouse to retrieve a list of files that have already been processed, preventing duplicate processing
+**1. Data Ingestion**
+   - **Copy Activity**: Connects to {source_type} and copies data to OneLake table "{table_name}"
+   - Uses Copy Activity for efficient bulk data transfer
+   - {"Requires Self-Hosted Integration Runtime for on-premise connectivity" if source_type in ["postgresql", "mysql", "sql_server", "oracle"] else "Uses cloud-based connectivity"}
+"""
 
-**2. Filtering Phase**
-   - **SetEmptyFileArray**: Initializes an array to store processed file names
-   - **ForEach1**: Iterates through warehouse results to build the processed files list
-   - **FilterNewFiles**: Filters out files that have already been processed, ensuring only new data flows through the pipeline
+        if transformations and transformations.lower() != "none":
+            reasoning += f"""
+**2. Data Transformation**
+   - **Dataflow Gen2**: Applies {transformations} transformations
+   - Output stored in "{table_name}_transformed" table
+"""
 
-**3. Processing Phase**
-   - **forEach Loop**: Processes each unprocessed file individually
-   - **PHI_PII_detection Notebook**:
-     - Reads CSV data from the bronze layer (Files/claims)
-     - Detects PII/PHI patterns including:
-       - Social Security Numbers (SSN)
-       - Member IDs
-       - Dates of Birth (DOB)
-       - Email addresses
-       - Phone numbers
-     - Joins with prior authorization data for enrichment
-     - Writes processed results to the silver layer (Files/silver)
+        if pii_masking and pii_masking.lower() != "none":
+            reasoning += f"""
+**{"3" if transformations and transformations.lower() != "none" else "2"}. PII/PHI Masking**
+   - **Notebook Activity**: Applies {pii_masking} masking to sensitive data
+   - Protects email, phone, and other PII fields
+   - Output stored in "{table_name}_masked" table
+"""
 
-**4. Notification & Integration Phase**
-   - **Send PII Alert Notification**: Sends email alerts to the data team when PII/PHI is detected, ensuring compliance awareness
-   - **Load to OneLake Tables**: Moves processed data from the silver layer to OneLake tables for analytics and reporting
-
-### Data Layers:
-
-- **Bronze Layer**: Raw ingestion zone (Files/claims) - stores original CSV files
-- **Silver Layer**: Processed data zone (Files/silver) - contains cleaned, validated, and enriched data with PII/PHI detection results
-
-### Key Features:
-
-✓ Automated file discovery and processing
-✓ Duplicate prevention through warehouse tracking
-✓ PII/PHI pattern detection for compliance
-✓ Email notifications for data governance
-✓ Medallion architecture for data quality
-✓ Scalable ForEach processing for multiple files"""
+        reasoning += """
+### Next Steps:
+1. Configure the source connection in Microsoft Fabric
+2. Deploy this pipeline to your workspace
+3. Run the pipeline manually or set up the schedule
+"""
 
         # Store in memory for deployment later
         generated_pipelines[pipeline_id] = {
             "pipeline_name": pipeline_name,
             "activities": activities,
-            "notebooks": [notebook],
+            "notebooks": notebooks,
             "reasoning": reasoning,
             "workspace_id": request.workspace_id,
             "config": {
                 "workspace_id": request.workspace_id,
                 "lakehouse_name": request.lakehouse_name or "default_lakehouse",
                 "warehouse_name": request.warehouse_name or "default_warehouse",
-                "source_folder": "bronze",  # Can be made dynamic later
-                "output_folder": "silver"   # Can be made dynamic later
+                "source_type": source_type,
+                "table_name": table_name,
+                "transformations": transformations,
+                "pii_masking": pii_masking,
+                "schedule": schedule
             }
         }
 
@@ -1499,7 +937,7 @@ This pipeline implements a comprehensive data processing solution with PII/PHI d
         pipeline_def_for_db = {
             "pipeline_name": pipeline_name,
             "activities": [activity.dict() if hasattr(activity, 'dict') else activity for activity in activities],
-            "notebooks": [notebook.dict() if hasattr(notebook, 'dict') else notebook for notebook in [notebook]],
+            "notebooks": [nb.dict() if hasattr(nb, 'dict') else nb for nb in notebooks],
             "reasoning": reasoning,
             "workspace_id": request.workspace_id,
             "config": generated_pipelines[pipeline_id]["config"]
@@ -1520,9 +958,10 @@ This pipeline implements a comprehensive data processing solution with PII/PHI d
             pipeline_id=pipeline_id,
             pipeline_name=pipeline_name,
             activities=activities,
-            notebooks=[notebook],
+            notebooks=notebooks,
             fabric_pipeline_json={},
-            reasoning=reasoning
+            reasoning=reasoning,
+            job_id=job_id  # Include job_id for deployment
         )
 
     except HTTPException:
@@ -2169,7 +1608,8 @@ async def validate_connection(request: Dict[str, Any]):
 @app.post("/api/jobs/{job_id}/deploy")
 async def deploy_pipeline_from_job(job_id: str):
     """
-    Deploy pipeline from a job stored in the database
+    Deploy pipeline from a job stored in the database.
+    Uses the ACTUAL generated pipeline activities, not hardcoded template.
     """
     try:
         logger.info(f"Deploying pipeline from job {job_id}")
@@ -2193,28 +1633,92 @@ async def deploy_pipeline_from_job(job_id: str):
             pipeline_deployment_status='in_progress'
         )
 
-        # Import deployment function
-        from deploy_pipeline_api import deploy_fabric_pipeline
-
-        # Get config from pipeline definition
+        # Get config and activities from pipeline definition
         config = pipeline_definition.get('config', {})
+        activities = pipeline_definition.get('activities', [])
+        pipeline_name = job.get('pipeline_name', f"Pipeline_{job_id}")
+        workspace_id = config.get("workspace_id")
 
-        # Deploy the pipeline
-        logger.info(f"Deploying with config: {config}")
+        logger.info(f"Deploying pipeline '{pipeline_name}' with {len(activities)} activities")
+        logger.info(f"Config: {config}")
 
-        result = await deploy_fabric_pipeline(
-            workspace_id=config.get("workspace_id"),
-            lakehouse_name=config.get("lakehouse_name", "jay_dev_lakehouse"),
-            warehouse_name=config.get("warehouse_name", "jay-dev-warehouse"),
-            source_folder=config.get("source_folder", "bronze"),
-            output_folder=config.get("output_folder", "silver"),
-            pipeline_name=job.get('pipeline_name', f"Pipeline_{job_id}"),
-            notebook_name="PHI_PII_detection"
+        # Convert our activities to Fabric pipeline JSON format
+        fabric_activities = []
+        for activity in activities:
+            activity_name = activity.get('name', 'Activity')
+            activity_type = activity.get('type', 'Copy')
+            activity_config = activity.get('config', {})
+            depends_on = activity.get('depends_on', [])
+
+            # Build Fabric activity based on type
+            if activity_type == "Copy":
+                fabric_activity = {
+                    "name": activity_name,
+                    "type": "Copy",
+                    "dependsOn": [{"activity": dep, "dependencyConditions": ["Succeeded"]} for dep in (depends_on or [])],
+                    "policy": {
+                        "timeout": "0.12:00:00",
+                        "retry": 0,
+                        "retryIntervalInSeconds": 30
+                    },
+                    "typeProperties": {
+                        "source": activity_config.get('source', {}),
+                        "sink": {
+                            "type": "LakehouseTableSink",
+                            "tableActionOption": activity_config.get('destination', {}).get('tableAction', 'Overwrite')
+                        },
+                        "enableStaging": activity_config.get('enableStaging', False)
+                    }
+                }
+            elif activity_type == "DataflowGen2":
+                fabric_activity = {
+                    "name": activity_name,
+                    "type": "DataflowGen2",
+                    "dependsOn": [{"activity": dep, "dependencyConditions": ["Succeeded"]} for dep in (depends_on or [])],
+                    "typeProperties": {
+                        "dataflowName": activity_config.get('dataflowName', activity_name)
+                    }
+                }
+            elif activity_type == "TridentNotebook":
+                fabric_activity = {
+                    "name": activity_name,
+                    "type": "TridentNotebook",
+                    "dependsOn": [{"activity": dep, "dependencyConditions": ["Succeeded"]} for dep in (depends_on or [])],
+                    "typeProperties": {
+                        "notebookId": activity_config.get('notebookId'),
+                        "parameters": activity_config.get('parameters', {})
+                    }
+                }
+            else:
+                # Generic activity
+                fabric_activity = {
+                    "name": activity_name,
+                    "type": activity_type,
+                    "dependsOn": [{"activity": dep, "dependencyConditions": ["Succeeded"]} for dep in (depends_on or [])],
+                    "typeProperties": activity_config
+                }
+
+            fabric_activities.append(fabric_activity)
+
+        # Build complete Fabric pipeline definition
+        fabric_pipeline_def = {
+            "properties": {
+                "activities": fabric_activities
+            }
+        }
+
+        logger.info(f"Fabric pipeline definition: {json.dumps(fabric_pipeline_def, indent=2)}")
+
+        # Deploy using fabric_service
+        result = await fabric_service.create_pipeline(
+            workspace_id=workspace_id,
+            pipeline_name=pipeline_name,
+            pipeline_definition=fabric_pipeline_def
         )
 
         # Check if deployment succeeded
-        if result and result.get("status") == "failed":
-            # Deployment function returned failure status
+        if result and result.get("success") == False:
+            # Deployment failed
             error_msg = result.get("error", "Unknown deployment error")
             logger.error(f"Deployment failed: {error_msg}")
 
@@ -2227,8 +1731,8 @@ async def deploy_pipeline_from_job(job_id: str):
             )
             raise Exception(error_msg)
 
-        elif result and result.get("pipeline_id"):
-            logger.info(f"[SUCCESS] Pipeline deployed successfully to Fabric!")
+        elif result and (result.get("success") or result.get("pipeline_id")):
+            logger.info(f"[SUCCESS] Pipeline '{pipeline_name}' deployed successfully to Fabric!")
 
             # Update job with deployment results (clear any previous errors)
             db_service.update_job_status(
@@ -2236,7 +1740,7 @@ async def deploy_pipeline_from_job(job_id: str):
                 status='completed',
                 pipeline_deployment_status='completed',
                 pipeline_id=result.get("pipeline_id"),
-                pipeline_name=result.get("pipeline_name"),
+                pipeline_name=pipeline_name,
                 clear_error=True  # Clear previous errors on success
             )
 
@@ -2244,18 +1748,15 @@ async def deploy_pipeline_from_job(job_id: str):
                 "success": True,
                 "job_id": job_id,
                 "fabric_pipeline_id": result.get("pipeline_id"),
-                "message": f"Pipeline '{job.get('pipeline_name')}' deployed successfully!",
-                "notebooks_deployed": 1,
-                "deployed_notebooks": [result.get("notebook_name", "PHI_PII_detection")],
-                "workspace_name": result.get("workspace_name"),
-                "lakehouse_name": result.get("lakehouse_name"),
-                "source_folder": result.get("source_folder"),
-                "output_folder": result.get("output_folder")
+                "message": f"Pipeline '{pipeline_name}' deployed successfully!",
+                "activities_count": len(activities),
+                "workspace_id": workspace_id,
+                "config": config
             }
         else:
             # Unexpected result format
             logger.error(f"Unexpected deployment result: {result}")
-            error_message = "Deployment failed - unexpected response from deployment function"
+            error_message = "Deployment failed - unexpected response from Fabric API"
 
             # Update job with failure status
             db_service.update_job_status(

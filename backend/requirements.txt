@@ -22,6 +22,9 @@ openai>=1.12.0
 azure-ai-projects>=1.0.0
 azure-identity>=1.15.0
 
+# OpenAI Agents SDK (for multi-agent orchestration)
+openai-agents>=0.0.3
+
 # Database (SQLAlchemy)
 sqlalchemy>=2.0.36
 alembic>=1.14.0

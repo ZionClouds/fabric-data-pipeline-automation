@@ -92,10 +92,11 @@ class DatabaseService:
         self,
         user_id: Optional[str] = None,
         user_email: Optional[str] = None,
+        workspace_id: Optional[str] = None,
         status: Optional[str] = None,
         limit: int = 50
     ) -> List[Dict[str, Any]]:
-        """Get conversations by user"""
+        """Get conversations by user, optionally filtered by workspace"""
         with self.get_session() as session:
             query = session.query(Conversation)
 
@@ -103,6 +104,8 @@ class DatabaseService:
                 query = query.filter(Conversation.user_id == user_id)
             if user_email:
                 query = query.filter(Conversation.user_email == user_email)
+            if workspace_id:
+                query = query.filter(Conversation.workspace_id == workspace_id)
             if status:
                 query = query.filter(Conversation.status == status)
 

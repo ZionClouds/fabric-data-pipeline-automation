@@ -28,7 +28,19 @@
       "Bash(wc:*)",
       "Bash(ls:*)",
       "Bash(xargs:*)",
-      "Bash(cat:*)"
+      "Bash(cat:*)",
+      "WebSearch",
+      "Bash(kill:*)",
+      "Bash(find:*)",
+      "Bash(timeout 10 python3:*)",
+      "Bash(grep:*)",
+      "Bash(az group show:*)",
+      "Bash(az group list:*)",
+      "Bash(az account show:*)",
+      "Bash(az account list:*)",
+      "Bash(az account set:*)",
+      "Bash(timeout 15 python3:*)",
+      "Bash(pkill:*)"
     ],
     "deny": [],
     "ask": []

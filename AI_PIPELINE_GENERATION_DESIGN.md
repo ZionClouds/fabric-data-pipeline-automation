@@ -17,16 +17,20 @@ The system allows users to describe their business requirements in natural langu
 ## Table of Contents
 
 1. [Architecture Overview](#architecture-overview)
-2. [Multi-LLM Call Structure](#multi-llm-call-structure)
-3. [User Interface Flow](#user-interface-flow)
-4. [Question Flow](#question-flow)
-5. [Transformation Handling](#transformation-handling)
-6. [PII/PHI Detection & Masking](#piiphi-detection--masking)
-7. [Resource Management](#resource-management)
-8. [Pipeline Activities](#pipeline-activities)
-9. [Generated Notebook Code](#generated-notebook-code)
-10. [Configuration Schema](#configuration-schema)
-11. [Next Steps](#next-steps)
+2. [Implementation Status](#implementation-status)
+3. [Multi-LLM Call Structure](#multi-llm-call-structure)
+4. [User Interface Flow](#user-interface-flow)
+5. [Question Flow](#question-flow)
+6. [Source Type Handling](#source-type-handling)
+7. [Transformation Handling](#transformation-handling)
+8. [PII/PHI Detection & Masking](#piiphi-detection--masking)
+9. [Resource Management](#resource-management)
+10. [Pipeline Activities](#pipeline-activities)
+11. [Generated Notebook Code](#generated-notebook-code)
+12. [Configuration Schema](#configuration-schema)
+13. [API Endpoints](#api-endpoints)
+14. [Test Results](#test-results)
+15. [File Structure](#file-structure)
 
 ---
 
@@ -45,8 +49,8 @@ The system allows users to describe their business requirements in natural langu
 │        │                   │                                     │
 │        ▼                   ▼                                     │
 │  ┌─────────────┐     ┌─────────────┐                            │
-│  │  Workspace  │     │   OpenAI    │                            │
-│  │  Selection  │     │   (LLM)     │                            │
+│  │  Workspace  │     │ Azure OpenAI│                            │
+│  │  Selection  │     │  (GPT-5)    │                            │
 │  └─────────────┘     └─────────────┘                            │
 │                                                                  │
 └─────────────────────────────────────────────────────────────────┘
@@ -67,12 +71,15 @@ User describes business requirement
 ┌─────────────────────────────────────┐
 │  LLM Call 1: Understand Use Case    │
 │  → Identify activities needed       │
+│  → Detect source type (SQL/Blob)    │
 └─────────────────────────────────────┘
          │
          ▼
 ┌─────────────────────────────────────┐
 │  LLM Call 2: Gather Requirements    │
-│  → Ask questions based on activities│
+│  → Ask questions based on source    │
+│  → Ask about PII/PHI                │
+│  → Ask about transformations        │
 └─────────────────────────────────────┘
          │
          ▼
@@ -85,6 +92,7 @@ User describes business requirement
 ┌─────────────────────────────────────┐
 │  LLM Call 4: Generate Pipeline JSON │
 │  → Use activity builders            │
+│  → Generate Notebook if PII enabled │
 └─────────────────────────────────────┘
          │
          ▼
@@ -96,6 +104,33 @@ User describes business requirement
 
 ---
 
+## Implementation Status
+
+### ✅ Completed Components
+
+| Component | File | Lines | Status |
+|-----------|------|-------|--------|
+| Data Models | `models.py` | 247 | ✅ Complete |
+| AI Chat Service | `chat_service.py` | 950+ | ✅ Complete |
+| Notebook Generator | `notebook_generator.py` | 660+ | ✅ Complete |
+| Pipeline Generator | `pipeline_generator.py` | 545+ | ✅ Complete |
+| Resource Manager | `resource_manager.py` | 750+ | ✅ Complete |
+| Deployment Service | `deployment_service.py` | 405+ | ✅ Complete |
+| API Router | `router.py` | 415+ | ✅ Complete |
+| **Total** | **8 files** | **4,000+ lines** | ✅ |
+
+### Key Features Implemented
+
+1. **Azure OpenAI Integration** - Uses `gpt-5-chat` deployment
+2. **Multi-Source Support** - Azure SQL Database and Blob Storage
+3. **Dynamic PII Detection** - Presidio-based, no hardcoded columns
+4. **AI-Decided Sample Size** - Based on data volume
+5. **4 Masking Types** - Redact, Partial, Fake, Hash
+6. **Complete Pipeline Generation** - GetMetadata, ForEach, Copy, Notebook activities
+7. **Schedule Generation** - Daily, Weekly, Monthly triggers
+
+---
+
 ## Multi-LLM Call Structure
 
 ### LLM Call 1: Use Case Analyzer
@@ -104,18 +139,20 @@ User describes business requirement
 
 **Input:**
 ```
-User: "I need to load sales data from blob storage daily"
+User: "I have my data in the azure sql database and I want to transfer the data into the OneLake"
 ```
 
 **Output:**
 ```json
 {
-    "use_case": "blob_to_lakehouse_ingestion",
+    "use_case_type": "database_to_lakehouse",
+    "description": "Transfer data from Azure SQL Database to OneLake",
     "activities": [
-        {"type": "GetMetadata", "reason": "List files in source"},
-        {"type": "ForEach", "reason": "Handle multiple files"},
-        {"type": "Copy", "reason": "Move data to lakehouse"}
+        {"type": "GetMetadata", "reason": "Retrieve schema or table list from Azure SQL Database", "order": 1},
+        {"type": "ForEach", "reason": "Iterate through tables or datasets to be copied", "order": 2},
+        {"type": "Copy", "reason": "Copy data from Azure SQL Database to OneLake", "order": 3}
     ],
+    "needs_pii_detection": false,
     "needs_transformation": false,
     "needs_scheduling": true
 }
@@ -123,16 +160,15 @@ User: "I need to load sales data from blob storage daily"
 
 ### LLM Call 2: Requirements Gatherer
 
-**Purpose:** Based on identified activities, determine what information to collect
+**Purpose:** Based on identified source type, determine what information to collect
 
 **Activity Requirements Matrix:**
 
-| Activity | Required Information |
-|----------|---------------------|
-| GetMetadata (Blob) | Storage account, Container, Folder path |
-| ForEach | No extra info (uses GetMetadata output) |
-| Copy (Blob→Lakehouse) | Connection ID, Workspace ID, Lakehouse ID, Target |
-| Notebook | Environment ID (if PII detection needed) |
+| Source Type | Required Information |
+|-------------|---------------------|
+| Azure SQL Database | Server name, Database name, Table name(s) |
+| Blob Storage | Storage account, Container, Folder path, File format |
+| SharePoint | Site URL, Document library, Folder path |
 
 ### LLM Call 3: Resource Resolver
 
@@ -141,8 +177,8 @@ User: "I need to load sales data from blob storage daily"
 ```python
 # Query existing resources using SDK
 existing_connections = await connection_client.list_connections()
-existing_workspaces = await workspace_client.list_workspaces()
-existing_lakehouses = await workspace_client.list_lakehouses(workspace_id)
+existing_environments = await environment_client.list_environments()
+default_lakehouse = await lakehouse_client.get_default()
 ```
 
 ### LLM Call 4: JSON Generator
@@ -161,7 +197,7 @@ existing_lakehouses = await workspace_client.list_lakehouses(workspace_id)
 ┌─────────────────────────────────────────────────────────────────┐
 │  FRONTEND: User selects Workspace first                         │
 │  ┌─────────────────────────────────────────┐                    │
-│  │  Select Workspace: [ Sales-Analytics ▼ ]│                    │
+│  │  Select Workspace: [ jay-dev          ▼ ]│                    │
 │  └─────────────────────────────────────────┘                    │
 │                       │                                          │
 │                       ▼                                          │
@@ -184,63 +220,124 @@ existing_lakehouses = await workspace_client.list_lakehouses(workspace_id)
 
 ## Question Flow
 
-### Complete AI Chat Question Flow
+### Azure SQL Database Source Flow
 
 ```
-[Workspace: Sales-Analytics - Already Selected]
+[Workspace: jay-dev - Already Selected]
 
+User: "I have my data in the azure sql database and I want to transfer the data into the OneLake"
+
+AI: "I understand you want to create a data pipeline:
+
+**Use Case:** Transfer data from Azure SQL Database to OneLake
+
+**Activities I'll use:**
+   1. GetMetadata - Retrieve schema and table information
+   2. ForEach - Iterate through tables or datasets
+   3. Copy - Copy data to OneLake
+
+**📦 SOURCE (Azure SQL Database)**
+Please provide:
+1. Server name? (e.g., myserver.database.windows.net)
+2. Database name?
+3. Table name(s) to transfer?"
+
+User: "The server name is myserver.database.windows.net, database is salesdb, and I want to load the customers table"
+
+AI: "Got the source details!
+
+**🔒 SENSITIVE DATA**
+Does this data contain PII/PHI (Personal/Health Information)?
+- **Yes** - Data contains sensitive information
+- **No** - No sensitive data"
+
+User: "Yes"
+
+AI: "How would you like to mask sensitive data?
+   • **Redact**  → john@email.com → <EMAIL_ADDRESS>
+   • **Partial** → john@email.com → j***@***.com
+   • **Fake**    → john@email.com → user_8x7k@masked.com
+   • **Hash**    → john@email.com → a1b2c3d4..."
+
+User: "Partial"
+
+AI: "PII detection enabled with **partial** masking.
+
+**🔄 TRANSFORMATIONS**
+Do you need any other transformations?
+- Filter rows
+- Select specific columns
+- None"
+
+User: "None"
+
+AI: "**📍 DESTINATION**
+Where should the data be stored?
+- Table name?"
+
+User: "customers_masked"
+
+AI: "**⏰ SCHEDULE**
+When should this pipeline run?
+- Frequency and time?"
+
+User: "Daily at 2 AM"
+
+AI: "Here's your pipeline summary:
+
+📦 Source: myserver.database.windows.net/salesdb/customers
+🔒 PII Masking: Partial (auto-detect at runtime)
+📍 Destination: customers_masked (Tables)
+⏰ Schedule: Daily at 2:00 AM UTC
+
+Pipeline: 'ExtractDataFromAzurePipeline'
+├── GetMetadata
+├── ForEach
+│   └── Copy (SQL → Lakehouse Files)
+├── Notebook (PII masking with Presidio)
+└── Schedule: Daily 2:00 AM UTC
+
+[Deploy Now] [Preview JSON] [Edit]"
+```
+
+### Blob Storage Source Flow
+
+```
 User: "I need to load sales data from blob storage daily"
 
-AI: "I'll create this pipeline. A few questions:
-
-📦 SOURCE
+AI: "**📦 SOURCE (Blob Storage)**
+Please provide:
 1. Storage account name?
 2. Container name?
-3. Folder path?
-4. File format? (CSV / Parquet / JSON)
-
-🔒 SENSITIVE DATA
-5. Does this data contain PII/PHI? (Yes / No)
-
-   [If Yes]
-   6. How would you like to mask sensitive data?
-      • Redact   → john@email.com → <EMAIL_ADDRESS>
-      • Partial  → john@email.com → j***@***.com
-      • Fake     → john@email.com → user_8x7k@masked.com
-      • Hash     → john@email.com → a1b2c3d4...
-
-🔄 TRANSFORMATIONS
-7. Any transformations needed? (describe or none)
-
-📍 DESTINATION
-8. Load to: Files or Tables?
-9. Table name? (if Tables)
-
-⏰ SCHEDULE
-10. Time & Timezone?"
+3. Folder path? (e.g., sales/2024/)
+4. File format? (CSV / Parquet / JSON)"
 ```
 
-### Questions Summary
+---
 
-| Category | Questions | Count |
-|----------|-----------|-------|
-| Source | Storage, Container, Folder, Format | 4 |
-| PII/PHI | Has sensitive data?, Masking type | 2 |
-| Transformations | What transformations? | 1 |
-| Destination | Files/Tables, Table name | 2 |
-| Schedule | Time, Timezone | 2 |
-| **Total** | | **~11** |
+## Source Type Handling
 
-### What AI Figures Out (Not Asked)
+### Source Detection Logic
 
-| Info | How AI Gets It |
-|------|----------------|
-| Workspace ID | Already selected in UI |
-| Lakehouse ID | Get default lakehouse from workspace |
-| Connection ID | Check existing or create new |
-| Activities to use | Determined from use case analysis |
-| Sample size for PII scan | AI decides based on data volume |
-| Which columns have PII | Presidio detects at runtime |
+The AI automatically detects source type from user message:
+
+| Keywords Detected | Source Type | Questions Asked |
+|-------------------|-------------|-----------------|
+| "sql", "database", "azure sql" | Azure SQL Database | Server, Database, Table |
+| "blob", "storage", "container" | Azure Blob Storage | Account, Container, Path, Format |
+| "sharepoint" | SharePoint | Site URL, Library, Folder |
+
+### Source Configuration Mapping
+
+```python
+# Azure SQL Source → Model Mapping
+source_config = SourceConfig(
+    storage_account="myserver.database.windows.net",  # Server name
+    container="salesdb",                               # Database name
+    folder_path="customers",                           # Table name
+    file_format=FileFormat.PARQUET                     # Output format
+)
+```
 
 ---
 
@@ -273,15 +370,6 @@ AI: "I'll create this pipeline. A few questions:
 │                                    └─────────────┘              │
 └─────────────────────────────────────────────────────────────────┘
 ```
-
-### When to Use What
-
-| Transformation Type | Tool | Example |
-|---------------------|------|---------|
-| Simple filters | Dataflow | `WHERE status = 'active'` |
-| Column selection | Dataflow | `SELECT id, name, amount` |
-| PII/PHI masking | Notebook + Presidio | Mask emails, phones, SSN |
-| Complex Python logic | Notebook | Custom business rules |
 
 ---
 
@@ -333,16 +421,19 @@ AI: "I'll create this pipeline. A few questions:
 
 ### AI-Decided Sample Size
 
-```
-┌─────────────────────────────────────────┐
-│ Total Rows      │ Sample Size           │
-├─────────────────────────────────────────┤
-│ < 100           │ All rows              │
-│ 100 - 1,000     │ 10 rows               │
-│ 1,000 - 10,000  │ 50 rows               │
-│ 10,000 - 100K   │ 100 rows              │
-│ > 100K          │ 200 rows              │
-└─────────────────────────────────────────┘
+```python
+def get_sample_size(total_rows: int) -> int:
+    """AI logic to decide sample size based on data volume"""
+    if total_rows < 100:
+        return total_rows  # Scan all
+    elif total_rows < 1000:
+        return 10
+    elif total_rows < 10000:
+        return 50
+    elif total_rows < 100000:
+        return 100
+    else:
+        return 200
 ```
 
 ### Presidio - Auto-Detected Entities
@@ -367,13 +458,12 @@ No hardcoding needed - Presidio automatically detects:
 │  When PII/PHI detection is needed:                               │
 │                                                                  │
 │  1. Create Environment (if not exists)                           │
-│     └── Name: "presidio-env" or "{workspace}-pii-env"           │
+│     └── Name: "PresidioEnvironment"                             │
 │                                                                  │
 │  2. Install Libraries                                            │
-│     └── presidio-analyzer                                        │
-│     └── presidio-anonymizer                                      │
-│     └── spacy                                                    │
-│     └── en_core_web_lg (spacy model)                            │
+│     └── presidio-analyzer (2.2.0)                               │
+│     └── presidio-anonymizer (2.2.0)                             │
+│     └── spacy (3.7.0)                                           │
 │                                                                  │
 │  3. Attach Environment to Notebook                               │
 │     └── notebook.environment_id = env_id                         │
@@ -418,21 +508,13 @@ No hardcoding needed - Presidio automatically detects:
 │                    CONNECTION HANDLING                           │
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                  │
-│  After user provides storage account name:                       │
+│  After user provides source details:                             │
 │                                                                  │
-│  Check: Does connection exist for this storage?                  │
+│  Check: Does connection exist for this source?                   │
 │      │                                                           │
 │      ├── YES → Use existing connection_id silently               │
 │      │                                                           │
-│      └── NO  → Ask user for credentials                          │
-│               │                                                  │
-│               ▼                                                  │
-│          "No connection found. Please provide:                   │
-│           • Account Key, OR                                      │
-│           • Service Principal credentials, OR                    │
-│           • Use Managed Identity"                                │
-│                                                                  │
-│          Then create connection via SDK                          │
+│      └── NO  → Create new connection via SDK                     │
 │                                                                  │
 └─────────────────────────────────────────────────────────────────┘
 ```
@@ -449,88 +531,88 @@ No hardcoding needed - Presidio automatically detects:
 | **Control Flow** | ForEachActivity, IfConditionActivity, SwitchActivity, UntilActivity, WaitActivity, FailActivity |
 | **Variables** | SetVariableActivity, AppendVariableActivity, FilterActivity |
 | **Data Operations** | GetMetadataActivity, LookupActivity, ScriptActivity |
-| **Fabric Specific** | NotebookActivity, RefreshDataflowActivity |
+| **Fabric Specific** | NotebookActivity (TridentNotebook), RefreshDataflowActivity |
 | **External** | WebActivity, ExecutePipelineActivity, Office365EmailActivity |
 
-### Example Pipeline Structure
+### Generated Pipeline Structure (with PII)
 
-```
-User: "I need to load sales data from blob storage daily"
-       + Has PII (email, phone)
-       + Transform: filter active customers only
-
-Pipeline:
-┌─────────────────────────────────────────────────────────────────┐
-│                                                                  │
-│  1. GetMetadata ──► List files in blob                          │
-│          │                                                       │
-│          ▼                                                       │
-│  2. ForEach ──► Iterate each file                               │
-│          │                                                       │
-│          ▼                                                       │
-│  3. Copy ──► Blob to Lakehouse/Files (raw)                      │
-│          │                                                       │
-│          ▼                                                       │
-│  4. Notebook ──► (with presidio-env attached)                   │
-│          │       ├── Read raw data                              │
-│          │       ├── Scan first N rows (AI decides N)           │
-│          │       ├── Detect sensitive columns (Presidio)        │
-│          │       ├── Apply user-selected masking                │
-│          │       ├── Apply business transformations             │
-│          │       └── Write to lakehouse table                   │
-│          │                                                       │
-│          ▼                                                       │
-│  5. Done                                                         │
-│                                                                  │
-└─────────────────────────────────────────────────────────────────┘
+```json
+{
+  "name": "AzureSQL_to_OneLake_Pipeline",
+  "properties": {
+    "activities": [
+      {
+        "name": "GetFileList",
+        "type": "GetMetadata",
+        "dependsOn": [],
+        "typeProperties": {
+          "dataset": { "referenceName": "SourceDataset" },
+          "fieldList": ["childItems"]
+        }
+      },
+      {
+        "name": "ForEachFile",
+        "type": "ForEach",
+        "dependsOn": [{"activity": "GetFileList", "dependencyConditions": ["Succeeded"]}],
+        "typeProperties": {
+          "items": "@activity('GetFileList').output.childItems",
+          "activities": [
+            {
+              "name": "CopyData",
+              "type": "Copy",
+              "typeProperties": {
+                "source": {"type": "BinarySource"},
+                "sink": {"type": "LakehouseTableSink"}
+              }
+            }
+          ]
+        }
+      },
+      {
+        "name": "ProcessData",
+        "type": "TridentNotebook",
+        "dependsOn": [{"activity": "ForEachFile", "dependencyConditions": ["Succeeded"]}],
+        "typeProperties": {
+          "notebookId": "@pipeline().parameters.notebookId",
+          "workspaceId": "@pipeline().parameters.workspaceId",
+          "parameters": {
+            "source_path": {"value": "Files/raw/data/", "type": "string"},
+            "output_table": {"value": "customers_masked", "type": "string"}
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "workspaceId": {"type": "string"},
+      "lakehouseId": {"type": "string"},
+      "notebookId": {"type": "string"}
+    },
+    "annotations": ["auto-generated", "ai-pipeline-service", "pii-detection"]
+  }
+}
 ```
 
 ---
 
 ## Generated Notebook Code
 
-### Complete Notebook (Auto-Generated)
+### Notebook Cells (9 cells for PII-enabled pipeline)
+
+| Cell | Purpose |
+|------|---------|
+| 1 | Setup and Imports (Presidio, PySpark) |
+| 2 | Configuration (source path, masking type, output table) |
+| 3 | Read Data from source |
+| 4 | AI-Decided Sample Size function |
+| 5 | Detect Sensitive Columns using Presidio |
+| 6 | Masking Functions (redact, partial, fake, hash) |
+| 7 | Apply Masking to detected columns |
+| 8 | Write to Lakehouse Table |
+| 9 | Execution Summary |
+
+### Sample Code - PII Detection Cell
 
 ```python
-# Cell 1: Setup Presidio
-from presidio_analyzer import AnalyzerEngine
-from presidio_anonymizer import AnonymizerEngine
-from presidio_anonymizer.entities import OperatorConfig
-from pyspark.sql.functions import udf, col
-from pyspark.sql.types import StringType
-import hashlib
-
-analyzer = AnalyzerEngine()
-anonymizer = AnonymizerEngine()
-
-# Cell 2: Configuration (Generated from user input)
-CONFIG = {
-    "source_path": "Files/raw/sales/",
-    "output_table": "fact_sales",
-    "masking_type": "partial"  # Options: redact, partial, fake, hash
-}
-
-# Cell 3: Read Data
-df = spark.read.format("delta").load(CONFIG["source_path"])
-
-# Cell 4: AI-Decided Sample Size
-def get_sample_size(total_rows):
-    """AI logic to decide sample size based on data volume"""
-    if total_rows < 100:
-        return total_rows  # Scan all
-    elif total_rows < 1000:
-        return 10
-    elif total_rows < 10000:
-        return 50
-    elif total_rows < 100000:
-        return 100
-    else:
-        return 200
-
-total_rows = df.count()
-sample_size = get_sample_size(total_rows)
-print(f"Total rows: {total_rows}, Sample size for PII detection: {sample_size}")
-
 # Cell 5: Detect Sensitive Columns Using Presidio
 def detect_sensitive_columns(df, sample_size):
     """Scan sample rows and detect which columns contain PII/PHI"""
@@ -538,110 +620,26 @@ def detect_sensitive_columns(df, sample_size):
     sample_df = df.limit(sample_size).toPandas()
 
     for column in sample_df.columns:
-        for value in sample_df[column].dropna():
-            if value is None or str(value).strip() == "":
+        for value in sample_df[column].dropna().astype(str):
+            if not value.strip():
                 continue
 
-            results = analyzer.analyze(text=str(value), language='en')
+            results = analyzer.analyze(text=value, language='en')
 
             if results:
                 sensitive_columns.append({
                     "column": column,
-                    "entity_type": results[0].entity_type
+                    "entity_type": results[0].entity_type,
+                    "confidence": results[0].score
                 })
-                break
+                break  # Found PII in this column, move to next
 
     return sensitive_columns
 
+# Execute detection
 sensitive_columns_info = detect_sensitive_columns(df, sample_size)
 sensitive_column_names = [c["column"] for c in sensitive_columns_info]
 print(f"Sensitive columns detected: {sensitive_columns_info}")
-
-# Cell 6: Masking Functions Based on User Choice
-def create_masking_function(masking_type):
-    """Create masking function based on user's choice"""
-
-    def redact_mask(text):
-        """Replace with entity labels: john@email.com → <EMAIL_ADDRESS>"""
-        if text is None or str(text).strip() == "":
-            return text
-        results = analyzer.analyze(text=str(text), language='en')
-        if results:
-            anonymized = anonymizer.anonymize(text=str(text), analyzer_results=results)
-            return anonymized.text
-        return text
-
-    def partial_mask(text):
-        """Partial masking: john@email.com → j***@***.com"""
-        if text is None or str(text).strip() == "":
-            return text
-        results = analyzer.analyze(text=str(text), language='en')
-        if results:
-            operators = {
-                "DEFAULT": OperatorConfig(
-                    "mask",
-                    {"chars_to_mask": 6, "masking_char": "*", "from_end": False}
-                )
-            }
-            anonymized = anonymizer.anonymize(
-                text=str(text),
-                analyzer_results=results,
-                operators=operators
-            )
-            return anonymized.text
-        return text
-
-    def fake_mask(text):
-        """Replace with fake data: john@email.com → user_8x7k@masked.com"""
-        if text is None or str(text).strip() == "":
-            return text
-        results = analyzer.analyze(text=str(text), language='en')
-        if results:
-            entity_type = results[0].entity_type
-            fake_values = {
-                "EMAIL_ADDRESS": f"user_{hashlib.md5(str(text).encode()).hexdigest()[:6]}@masked.com",
-                "PHONE_NUMBER": "555-000-0000",
-                "US_SSN": "000-00-0000",
-                "PERSON": "REDACTED_NAME",
-                "CREDIT_CARD": "0000-0000-0000-0000"
-            }
-            return fake_values.get(entity_type, "<MASKED>")
-        return text
-
-    def hash_mask(text):
-        """One-way hash: john@email.com → a1b2c3d4e5f6..."""
-        if text is None or str(text).strip() == "":
-            return text
-        results = analyzer.analyze(text=str(text), language='en')
-        if results:
-            return hashlib.sha256(str(text).encode()).hexdigest()[:16]
-        return text
-
-    # Return function based on user's choice
-    mask_functions = {
-        "redact": redact_mask,
-        "partial": partial_mask,
-        "fake": fake_mask,
-        "hash": hash_mask
-    }
-    return mask_functions.get(masking_type, redact_mask)
-
-# Cell 7: Apply Masking
-mask_function = create_masking_function(CONFIG["masking_type"])
-mask_udf = udf(mask_function, StringType())
-
-df_masked = df
-for column_name in sensitive_column_names:
-    print(f"Masking column: {column_name} using {CONFIG['masking_type']} method")
-    df_masked = df_masked.withColumn(column_name, mask_udf(col(column_name)))
-
-# Cell 8: Apply Business Transformations (Generated based on user input)
-# Example: df_transformed = df_masked.filter(df_masked.status == 'active')
-df_transformed = df_masked
-
-# Cell 9: Write to Lakehouse Table
-df_transformed.write.format("delta").mode("overwrite").saveAsTable(CONFIG["output_table"])
-print(f"Data written to: {CONFIG['output_table']}")
 ```
 
 ---
@@ -651,39 +649,223 @@ print(f"Data written to: {CONFIG['output_table']}")
 ### Complete Pipeline Config (Generated from AI Chat)
 
 ```python
-PIPELINE_CONFIG = {
-    # Source
-    "source": {
-        "storage_account": "contososales",
-        "container": "raw-data",
-        "folder_path": "sales/2024/",
-        "file_format": "csv"
-    },
+from services.ai_pipeline import PipelineConfig, SourceConfig, PIIConfig, DestinationConfig, ScheduleConfig
 
-    # PII/PHI
-    "pii_detection": {
-        "enabled": True,           # User said "Yes"
-        "masking_type": "partial"  # User chose "Partial"
-    },
+config = PipelineConfig(
+    # Workspace context
+    workspace_id="jay-dev-workspace-id",
+    workspace_name="jay-dev",
 
-    # Transformations
-    "transformations": [
-        {"type": "filter", "condition": "status = 'active'"}
-    ],
+    # Pipeline metadata
+    pipeline_name="AzureSQL_to_OneLake_Pipeline",
+    pipeline_description="Transfer data from Azure SQL Database to OneLake with PII masking",
 
-    # Destination (Lakehouse = default, not asked)
-    "destination": {
-        "target": "Tables",
-        "table_name": "fact_sales"
-    },
+    # Source configuration
+    source=SourceConfig(
+        storage_account="myserver.database.windows.net",
+        container="salesdb",
+        folder_path="customers",
+        file_format=FileFormat.PARQUET
+    ),
+
+    # PII configuration
+    pii=PIIConfig(
+        enabled=True,
+        masking_type=MaskingType.PARTIAL
+    ),
+
+    # Destination
+    destination=DestinationConfig(
+        target=DestinationType.TABLES,
+        table_name="customers_masked",
+        write_mode="overwrite"
+    ),
 
     # Schedule
-    "schedule": {
-        "frequency": "daily",
-        "time": "02:00",
-        "timezone": "UTC"
-    }
-}
+    schedule=ScheduleConfig(
+        enabled=True,
+        frequency="daily",
+        time="02:00",
+        timezone="UTC"
+    )
+)
+```
+
+---
+
+## API Endpoints
+
+### Chat Endpoints
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/ai-pipeline/chat` | Process chat message |
+| POST | `/ai-pipeline/chat/reset` | Reset chat session |
+| GET | `/ai-pipeline/chat/context/{session_id}` | Get session context |
+
+### Deployment Endpoints
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/ai-pipeline/deploy` | Deploy pipeline with config |
+| POST | `/ai-pipeline/deploy/from-session/{session_id}` | Deploy from chat session |
+
+### Preview Endpoints
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/ai-pipeline/preview/pipeline` | Preview pipeline JSON |
+| POST | `/ai-pipeline/preview/notebook` | Preview notebook code |
+| POST | `/ai-pipeline/preview/schedule` | Preview schedule config |
+| GET | `/ai-pipeline/preview/session/{session_id}` | Preview all from session |
+
+### Utility Endpoints
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/ai-pipeline/validate` | Validate configuration |
+| GET | `/ai-pipeline/masking-types` | Get masking type options |
+| GET | `/ai-pipeline/file-formats` | Get supported file formats |
+| GET | `/ai-pipeline/schedule-frequencies` | Get schedule frequencies |
+| GET | `/ai-pipeline/health` | Health check |
+
+---
+
+## Test Results
+
+### Test Suite Summary (All Passed ✅)
+
+**Use Case:** Azure SQL Database → OneLake Transfer
+**Workspace:** jay-dev
+
+#### TEST 1: Initial Chat Response ✅
+
+The AI correctly:
+- Identified use case as "Azure SQL to OneLake data transfer"
+- Proposed activities: GetMetadata → ForEach → Copy
+- Asked SQL-specific questions (server, database, table)
+
+```
+[AI RESPONSE]:
+State: gathering_source
+Message: I understand you want to create a data pipeline:
+
+**Use Case:** Extract data from Azure SQL Database and load it into OneLake (Lakehouse)
+
+**Activities I'll use:**
+   1. GetMetadata - Retrieve schema and table information
+   2. ForEach - Iterate through tables or datasets
+   3. Copy - Copy data to OneLake
+
+**📦 SOURCE (Azure SQL Database)**
+Please provide:
+1. Server name? (e.g., myserver.database.windows.net)
+2. Database name?
+3. Table name(s) to transfer?
+```
+
+#### TEST 2: Chat Flow Extraction ✅
+
+Successfully extracted from user message:
+- Server: `myserver.database.windows.net`
+- Database: `salesdb`
+- Table: `customers`
+
+#### TEST 3: Notebook Generator ✅
+
+Generated notebook with **9 cells**:
+- Setup and Imports
+- Configuration
+- Read Data (Parquet format)
+- AI-Decided Sample Size
+- Presidio PII Detection
+- Masking Functions
+- Apply Masking
+- Write to Lakehouse Table
+- Execution Summary
+
+#### TEST 4: Pipeline Generator ✅
+
+Generated valid Fabric pipeline JSON with:
+- 3 activities: GetMetadata → ForEach → Notebook
+- PII detection annotation
+- Daily schedule at 2 AM UTC
+
+#### TEST 5: Preview Endpoints ✅
+
+All preview endpoints working:
+- Pipeline: Valid with 3 activities
+- Notebook: 9 cells with PII detection
+- Schedule: Daily trigger
+
+#### TEST 6: API Response Format ✅
+
+API endpoint response includes:
+- `session_id`
+- `message`
+- `state`
+- `config`
+- `options`
+- `is_complete`
+
+---
+
+## File Structure
+
+```
+backend/services/ai_pipeline/
+├── __init__.py          # Package exports and documentation
+├── models.py            # Pydantic models (247 lines)
+│   ├── FileFormat, MaskingType, DestinationType (enums)
+│   ├── SourceConfig, PIIConfig, TransformationConfig
+│   ├── DestinationConfig, ScheduleConfig
+│   ├── PipelineConfig (complete configuration)
+│   ├── ConversationContext, ConversationMessage
+│   ├── ChatRequest, ChatResponse
+│   └── DeployRequest, DeployResponse
+│
+├── chat_service.py      # AI Chat Service (950+ lines)
+│   ├── Azure OpenAI integration
+│   ├── Multi-turn conversation handling
+│   ├── State machine (INITIAL → GATHERING_SOURCE → GATHERING_PII → ...)
+│   ├── Use case analysis (LLM)
+│   ├── Source info extraction (LLM + fallback)
+│   └── SQL vs Blob source handling
+│
+├── notebook_generator.py # Notebook Generator (660+ lines)
+│   ├── Cell generators for each step
+│   ├── Presidio integration code
+│   ├── AI sample size logic
+│   ├── 4 masking function implementations
+│   └── Jupyter notebook structure builder
+│
+├── pipeline_generator.py # Pipeline Generator (545+ lines)
+│   ├── Activity creators (GetMetadata, ForEach, Copy, Notebook)
+│   ├── Pipeline structure builder
+│   ├── Schedule/trigger generation
+│   └── Pipeline validation
+│
+├── resource_manager.py   # Resource Manager (750+ lines)
+│   ├── Connection management (check/create)
+│   ├── Environment management (Presidio setup)
+│   ├── Lakehouse management (default resolution)
+│   ├── Notebook creation
+│   ├── Pipeline deployment
+│   └── Schedule creation
+│
+├── deployment_service.py # Deployment Service (405+ lines)
+│   ├── Full deployment orchestration
+│   ├── Resource setup coordination
+│   ├── Notebook generation and upload
+│   ├── Pipeline validation and deployment
+│   └── Preview methods
+│
+└── router.py            # FastAPI Router (415+ lines)
+    ├── Chat endpoints (/chat, /chat/reset, /chat/context)
+    ├── Deploy endpoints (/deploy, /deploy/from-session)
+    ├── Preview endpoints (/preview/pipeline, /preview/notebook)
+    ├── Validation endpoint (/validate)
+    └── Utility endpoints (/masking-types, /file-formats, /health)
 ```
 
 ---
@@ -694,6 +876,7 @@ PIPELINE_CONFIG = {
 |----------|-------------|------|
 | Workspace | User | UI selection (before chat) |
 | Lakehouse | System | Auto-use default (unless user asks for new) |
+| Source Type | AI | Detected from user message |
 | Has PII/PHI? | User | AI chat question |
 | Masking type | User | AI chat question (4 options) |
 | Sample size | AI | At runtime (based on data volume) |
@@ -717,6 +900,7 @@ PIPELINE_CONFIG = {
 - `NotebookClient` - Notebook operations
 - `ConnectionClient` - Connection management
 - `WorkspaceClient` - Workspace operations
+- `EnvironmentClient` - Environment management
 
 ### Activity Builders
 - `CopyActivity`
@@ -729,131 +913,36 @@ PIPELINE_CONFIG = {
 
 ---
 
-## Next Steps
+## Usage Example
 
-### To Implement
+```python
+from services.ai_pipeline import AIChatService, DeploymentService
 
-1. **AI Chat Service**
-   - OpenAI integration
-   - Multi-turn conversation handling
-   - Question flow logic
+# Create chat session
+chat = AIChatService(
+    session_id="session-001",
+    workspace_id="jay-dev-workspace-id",
+    workspace_name="jay-dev"
+)
 
-2. **Notebook Generator**
-   - Template-based code generation
-   - Dynamic configuration injection
-   - Presidio environment setup
+# Process messages
+response = await chat.process_message(
+    "I have my data in the azure sql database and I want to transfer the data into the OneLake"
+)
 
-3. **Pipeline Generator**
-   - Use activity builders
-   - Generate complete pipeline JSON
-   - Handle dependencies between activities
+# Continue conversation...
+response = await chat.process_message(
+    "Server is myserver.database.windows.net, database is salesdb, table is customers"
+)
 
-4. **Resource Manager**
-   - Connection check/create logic
-   - Environment check/create logic
-   - Lakehouse default resolution
-
-5. **Deployment Service**
-   - Pipeline deployment via SDK
-   - Schedule configuration
-   - Error handling
-
-### Open Questions
-
-1. **LLM Choice**: OpenAI (GPT-4) or Azure OpenAI?
-
-2. **Environment Strategy**: One shared `presidio-env` per workspace, or check-and-create-if-needed?
-
-3. **Error Handling**: What happens if pipeline generation fails?
-
-4. **Versioning**: Should we version generated pipelines?
-
----
-
-## Appendix: Example Conversation
-
-```
-[Workspace: Sales-Analytics - Selected in UI]
-
-User: "I need to load sales data from blob storage daily"
-
-AI: "I'll help you create a data ingestion pipeline. Let me ask a few questions:
-
-📦 SOURCE
-1. Storage account name?"
-
-User: "contososales"
-
-AI: "2. Container name?"
-
-User: "raw-data"
-
-AI: "3. Folder path?"
-
-User: "sales/2024/"
-
-AI: "4. File format? (CSV / Parquet / JSON)"
-
-User: "CSV"
-
-AI: "🔒 SENSITIVE DATA
-5. Does this data contain PII/PHI? (Yes / No)"
-
-User: "Yes"
-
-AI: "6. How would you like to mask sensitive data?
-   • Redact   → john@email.com → <EMAIL_ADDRESS>
-   • Partial  → john@email.com → j***@***.com
-   • Fake     → john@email.com → user_8x7k@masked.com
-   • Hash     → john@email.com → a1b2c3d4..."
-
-User: "Partial"
-
-AI: "🔄 TRANSFORMATIONS
-7. Any transformations needed? (describe or none)"
-
-User: "Filter only active customers"
-
-AI: "📍 DESTINATION
-8. Load to: Files or Tables?"
-
-User: "Tables"
-
-AI: "9. Table name?"
-
-User: "fact_sales"
-
-AI: "⏰ SCHEDULE
-10. What time should it run daily and timezone?"
-
-User: "2 AM UTC"
-
-AI: "Perfect! Here's your pipeline summary:
-
-📦 Source: contososales/raw-data/sales/2024/*.csv
-🔒 PII Masking: Partial (auto-detect columns at runtime)
-🔄 Transform: Filter active customers
-📍 Destination: fact_sales (Tables)
-⏰ Schedule: Daily at 2:00 AM UTC
-
-Pipeline: 'DailySalesIngestion'
-├── GetMetadata (list CSV files)
-├── ForEach (iterate files)
-│   └── Copy (blob → lakehouse files)
-├── Notebook (PII masking + transformations)
-└── Schedule: Daily 2:00 AM UTC
-
-[Deploy Now] [Preview JSON] [Edit]"
-
-User: "Deploy Now"
-
-AI: "✅ Pipeline 'DailySalesIngestion' deployed successfully!
-
-View in Fabric: [link]
-First run scheduled: Tomorrow 2:00 AM UTC"
+# When complete, deploy
+deployment = DeploymentService(access_token="...")
+result = await deployment.deploy(chat.context.config)
+print(result.fabric_url)  # Link to view in Fabric portal
 ```
 
 ---
 
-*Document Version: 1.0*
+*Document Version: 2.0*
 *Last Updated: December 2024*
+*Implementation Status: Complete*

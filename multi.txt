@@ -1,0 +1,383 @@
+The Core Problem: What Does a Pipeline Need?
+
+  Before agents can "think", we need to define everything required to build a complete pipeline:
+
+  ┌─────────────────────────────────────────────────────────────────────────┐
+  │                    COMPLETE PIPELINE REQUIREMENTS                        │
+  ├─────────────────────────────────────────────────────────────────────────┤
+  │                                                                          │
+  │  1. SOURCE INFORMATION                                                   │
+  │     ├── Source type (PostgreSQL, SQL Server, Blob, etc.)                │
+  │     ├── Location (Cloud/On-premise)                                     │
+  │     ├── Connection details (host, port, database, auth)                 │
+  │     ├── Objects to extract (tables, files, endpoints)                   │
+  │     ├── Data volume (GB/rows)                                           │
+  │     ├── Schema information (columns, types, keys)                       │
+  │     └── Change frequency (static, hourly, daily, real-time)            │
+  │                                                                          │
+  │  2. BUSINESS CONTEXT                                                     │
+  │     ├── Use case (Analytics, ML, Operational, Archive)                  │
+  │     ├── Consumers (Power BI, Data Scientists, Applications)            │
+  │     ├── SLA requirements (latency tolerance)                            │
+  │     ├── Data freshness needs                                            │
+  │     └── Business criticality (POC vs Production)                        │
+  │                                                                          │
+  │  3. TRANSFORMATION REQUIREMENTS                                          │
+  │     ├── Cleaning needed? (nulls, duplicates, formats)                   │
+  │     ├── Enrichment needed? (joins, lookups)                             │
+  │     ├── Aggregations needed? (sums, counts, averages)                   │
+  │     ├── PII/PHI handling (detect, mask, encrypt)                        │
+  │     └── Custom business logic                                           │
+  │                                                                          │
+  │  4. DESTINATION CONFIGURATION                                            │
+  │     ├── Target type (Lakehouse Tables, Files, Warehouse)                │
+  │     ├── Naming conventions                                               │
+  │     ├── Partitioning strategy                                           │
+  │     ├── File format (Delta, Parquet, CSV)                               │
+  │     └── Retention policy                                                │
+  │                                                                          │
+  │  5. OPERATIONAL REQUIREMENTS                                             │
+  │     ├── Schedule (manual, hourly, daily, event-triggered)               │
+  │     ├── Error handling (retry, alert, skip)                             │
+  │     ├── Monitoring needs                                                │
+  │     ├── Dependencies (other pipelines, external systems)               │
+  │     └── Permissions/security                                            │
+  │                                                                          │
+  │  6. INFRASTRUCTURE                                                       │
+  │     ├── Workspace ID                                                    │
+  │     ├── Lakehouse/Warehouse selection                                   │
+  │     ├── Gateway (if on-premise)                                         │
+  │     ├── Connections to create                                           │
+  │     └── Capacity/sizing                                                 │
+  │                                                                          │
+  └─────────────────────────────────────────────────────────────────────────┘
+
+  ---
+  Agent Thinking Model: "What Do I Need to Know?"
+
+  Each agent should have a knowledge checklist - things it MUST know before it can do its job:
+
+  Discovery Agent's Checklist
+
+  DISCOVERY_AGENT_REQUIREMENTS = {
+      "must_know": [
+          "What is the source system?",
+          "What is the end goal/use case?",
+          "Who will consume this data?",
+          "Is this one-time or ongoing?",
+      ],
+      "should_know": [
+          "What's the business context?",
+          "Any deadline or urgency?",
+          "Is this POC or production?",
+      ],
+      "nice_to_know": [
+          "Budget constraints?",
+          "Team expertise level?",
+      ],
+
+      "thinking_rules": [
+          "If user says 'migrate' → ask if they need ongoing sync too",
+          "If user mentions 'customer data' → flag potential PII",
+          "If user says 'Power BI' → will need aggregated layer",
+          "If user says 'real-time' → different architecture entirely",
+      ]
+  }
+
+  Source Analyst's Checklist
+
+  SOURCE_ANALYST_REQUIREMENTS = {
+      "must_know": [
+          "Exact source type and version",
+          "Cloud or on-premise?",
+          "What objects to extract (tables/files/APIs)?",
+          "Estimated data volume",
+      ],
+      "should_know": [
+          "Schema details (columns, types)",
+          "Primary keys / relationships",
+          "How data changes (insert-only, updates, deletes)?",
+          "Any CDC/change tracking available?",
+      ],
+      "nice_to_know": [
+          "Current performance issues?",
+          "Network constraints?",
+          "Existing ETL tools in use?",
+      ],
+
+      "thinking_rules": [
+          "If on-premise → MUST have gateway, check if exists",
+          "If PostgreSQL → ask about logical replication for CDC",
+          "If volume > 100GB → need partitioning strategy",
+          "If tables have FKs → need load ordering",
+          "If Blob storage → ask about file patterns and formats",
+      ]
+  }
+
+  Fabric Architect's Checklist
+
+  FABRIC_ARCHITECT_REQUIREMENTS = {
+      "must_know": [
+          "Source type (from Source Analyst)",
+          "Transformation needs (from Transform Expert)",
+          "Destination type (tables/files)",
+          "Refresh frequency",
+      ],
+      "should_know": [
+          "Data volume for sizing",
+          "Parallelism requirements",
+          "Error handling preferences",
+      ],
+
+      "decision_matrix": {
+          "Copy Activity": {
+              "when": ["No transforms", "Simple copy", "< 10 tables"],
+              "avoid_when": ["Complex logic", "Need PII masking"],
+          },
+          "Dataflow Gen2": {
+              "when": ["Light transforms", "Visual debugging helpful", "PII masking"],
+              "avoid_when": ["Very large data", "Complex Python logic"],
+          },
+          "Notebook": {
+              "when": ["Complex transforms", "ML logic", "Custom Python", "> 100GB"],
+              "avoid_when": ["Simple copies", "Non-technical team"],
+          },
+          "Mirroring": {
+              "when": ["Real-time CDC", "SQL Server/Azure SQL source"],
+              "avoid_when": ["One-time migration", "Non-SQL sources"],
+          },
+      },
+
+      "thinking_rules": [
+          "If 20+ tables → use ForEach with parallelism",
+          "If needs aggregations → recommend Gold layer",
+          "If Power BI destination → optimize for DirectQuery or Import",
+          "If real-time → consider Eventstream",
+      ]
+  }
+
+  ---
+  The "Gathering Intelligence" Flow
+
+  ┌─────────────────────────────────────────────────────────────────────┐
+  │                         ORCHESTRATOR                                 │
+  │                                                                      │
+  │  Maintains: PIPELINE_REQUIREMENTS_STATE                             │
+  │  {                                                                   │
+  │    "source": { "complete": false, "missing": [...] },              │
+  │    "business_context": { "complete": false, "missing": [...] },    │
+  │    "transformations": { "complete": false, "missing": [...] },     │
+  │    "destination": { "complete": false, "missing": [...] },         │
+  │    "operations": { "complete": false, "missing": [...] },          │
+  │    "infrastructure": { "complete": false, "missing": [...] },      │
+  │  }                                                                   │
+  │                                                                      │
+  │  KEEPS ASKING until all sections are "complete: true"               │
+  └─────────────────────────────────────────────────────────────────────┘
+
+  Example: Intelligent Gathering
+
+  User: "I want to move my PostgreSQL data to Fabric"
+
+  ┌─────────────────────────────────────────────────────────────────────┐
+  │ ORCHESTRATOR analyzes message                                        │
+  │                                                                      │
+  │ Extracted:                                                           │
+  │   ✓ Source type: PostgreSQL                                         │
+  │   ✗ Location: Unknown (cloud or on-prem?)                           │
+  │   ✗ Objects: Unknown (which tables?)                                │
+  │   ✗ Use case: Unknown (why are they moving it?)                     │
+  │   ✗ Everything else: Unknown                                        │
+  │                                                                      │
+  │ DECIDES: Call Discovery Agent to understand use case first          │
+  └─────────────────────────────────────────────────────────────────────┘
+
+  ┌─────────────────────────────────────────────────────────────────────┐
+  │ DISCOVERY AGENT                                                      │
+  │                                                                      │
+  │ THINKS:                                                              │
+  │ "I know it's PostgreSQL, but I need to understand WHY before        │
+  │  asking about tables. The use case will inform everything else."    │
+  │                                                                      │
+  │ GENERATES QUESTION:                                                  │
+  │ "I can help you move your PostgreSQL data to Fabric! To design     │
+  │  the right solution, I need to understand the bigger picture:       │
+  │                                                                      │
+  │  What will you be using this data for once it's in Fabric?          │
+  │  (For example: Power BI dashboards, data science/ML,                │
+  │   application database, or data archival)"                          │
+  └─────────────────────────────────────────────────────────────────────┘
+
+  User: "We need it for Power BI dashboards for our sales team"
+
+  ┌─────────────────────────────────────────────────────────────────────┐
+  │ DISCOVERY AGENT                                                      │
+  │                                                                      │
+  │ THINKS:                                                              │
+  │ "Power BI dashboards for sales team = Analytics use case"          │
+  │ "Sales data likely means: orders, customers, products"              │
+  │ "Customers = potential PII (names, emails, addresses)"              │
+  │ "Dashboards need fast queries = might need Gold aggregated layer"  │
+  │                                                                      │
+  │ UPDATES STATE:                                                       │
+  │ {                                                                    │
+  │   "use_case": "analytics",                                          │
+  │   "consumers": "sales_team",                                        │
+  │   "tool": "power_bi",                                               │
+  │   "pii_likely": true,                                               │
+  │   "needs_aggregation": true                                         │
+  │ }                                                                    │
+  │                                                                      │
+  │ STILL MISSING: Location, tables, volume, frequency                  │
+  │                                                                      │
+  │ GENERATES SMART QUESTION (combines multiple):                       │
+  │ "Great! For sales dashboards, I'll design an optimized solution.   │
+  │                                                                      │
+  │  A few quick questions:                                              │
+  │  1. Is this PostgreSQL on-premise or cloud-hosted (like Azure/AWS)?│
+  │  2. Roughly how many tables and what's the data size?              │
+  │  3. How often does the sales data change? (real-time, daily, etc.)"│
+  └─────────────────────────────────────────────────────────────────────┘
+
+  User: "On-premise, about 15 tables, maybe 30GB, updated daily"
+
+  ┌─────────────────────────────────────────────────────────────────────┐
+  │ ORCHESTRATOR                                                         │
+  │                                                                      │
+  │ Now knows enough! Updates state:                                     │
+  │ {                                                                    │
+  │   "source": {                                                        │
+  │     "type": "postgresql",                                           │
+  │     "location": "on_premise",      ← Needs Gateway!                 │
+  │     "tables": "15",                                                 │
+  │     "volume": "30GB"                                                │
+  │   },                                                                 │
+  │   "business_context": {                                             │
+  │     "use_case": "analytics",                                        │
+  │     "consumers": "power_bi",                                        │
+  │     "pii_likely": true                                              │
+  │   },                                                                 │
+  │   "operations": {                                                    │
+  │     "frequency": "daily"                                            │
+  │   }                                                                  │
+  │ }                                                                    │
+  │                                                                      │
+  │ DECIDES: Have enough info! Call specialists in PARALLEL:            │
+  │   → Source Analyst: Validate PostgreSQL approach                    │
+  │   → Fabric Architect: Design the pipeline                           │
+  │   → Transform Expert: Check if transforms needed                    │
+  └─────────────────────────────────────────────────────────────────────┘
+
+          ┌────────────────────────┬────────────────────────┐
+          ▼                        ▼                        ▼
+  ┌──────────────────┐  ┌──────────────────┐  ┌──────────────────┐
+  │  SOURCE ANALYST  │  │ FABRIC ARCHITECT │  │ TRANSFORM EXPERT │
+  │                  │  │                  │  │                  │
+  │ THINKS:          │  │ THINKS:          │  │ THINKS:          │
+  │ • On-prem needs  │  │ • 15 tables =    │  │ • Sales data =   │
+  │   gateway        │  │   ForEach loop   │  │   likely PII     │
+  │ • 30GB = medium  │  │ • Daily = sched- │  │ • Power BI needs │
+  │ • Daily updates =│  │   uled pipeline  │  │   clean data     │
+  │   need incremntal│  │ • Power BI =     │  │ • Recommend      │
+  │   strategy       │  │   need Gold layer│  │   Bronze→Silver  │
+  │                  │  │                  │  │   →Gold          │
+  │ RETURNS:         │  │ RETURNS:         │  │ RETURNS:         │
+  │ {                │  │ {                │  │ {                │
+  │  "gateway":      │  │  "pattern":      │  │  "architecture": │
+  │    "required",   │  │    "medallion",  │  │    "medallion",  │
+  │  "approach":     │  │  "bronze":       │  │  "pii_handling": │
+  │    "incremental",│  │    "copy_act",   │  │    "recommended",│
+  │  "blocker":      │  │  "silver":       │  │  "transforms": [ │
+  │    "no_gateway"  │  │    "dataflow",   │  │    "dedupe",     │
+  │ }                │  │  "gold":         │  │    "clean_nulls" │
+  │                  │  │    "notebook"    │  │  ]               │
+  │                  │  │ }                │  │ }                │
+  └────────┬─────────┘  └────────┬─────────┘  └────────┬─────────┘
+           └────────────────┬────────────────────┘
+                            ▼
+  ┌─────────────────────────────────────────────────────────────────────┐
+  │ ORCHESTRATOR merges all insights                                     │
+  │                                                                      │
+  │ SYNTHESIS:                                                           │
+  │                                                                      │
+  │ "Based on my analysis, here's what I recommend for your sales       │
+  │  analytics pipeline:                                                 │
+  │                                                                      │
+  │  ⚠️  PREREQUISITE: You'll need an On-Premises Data Gateway          │
+  │      (I detected you don't have one. I can guide you through setup) │
+  │                                                                      │
+  │  📐 ARCHITECTURE: Medallion (Bronze → Silver → Gold)                │
+  │                                                                      │
+  │  ┌─────────────┐    ┌─────────────┐    ┌─────────────┐             │
+  │  │   BRONZE    │ →  │   SILVER    │ →  │    GOLD     │             │
+  │  │  (Raw Data) │    │  (Cleaned)  │    │ (Analytics) │             │
+  │  ├─────────────┤    ├─────────────┤    ├─────────────┤             │
+  │  │ Copy        │    │ Dataflow    │    │ Notebook    │             │
+  │  │ Activity    │    │ Gen2        │    │             │             │
+  │  │             │    │             │    │             │             │
+  │  │ • 15 tables │    │ • Dedupe    │    │ • Sales     │             │
+  │  │ • Parallel  │    │ • Clean     │    │   aggregates│             │
+  │  │   extract   │    │   nulls     │    │ • KPIs      │             │
+  │  │ • Daily     │    │ • PII mask  │    │             │             │
+  │  │   increment │    │             │    │             │             │
+  │  └─────────────┘    └─────────────┘    └─────────────┘             │
+  │                                                                      │
+  │  🔒 PII HANDLING: I detected this is sales/customer data.           │
+  │     I'll add automatic PII detection and masking in Silver layer.   │
+  │                                                                      │
+  │  📅 SCHEDULE: Daily at 2 AM (off-peak for Power BI refresh)        │
+  │                                                                      │
+  │  Do you want me to:                                                  │
+  │  1. Proceed with this design                                        │
+  │  2. Modify something (schedule, layers, etc.)                       │
+  │  3. See alternative approaches"                                      │
+  └─────────────────────────────────────────────────────────────────────┘
+
+  ---
+  Key Design Principle: Agents Know What They Don't Know
+
+  class AgentThinking:
+      """Each agent follows this thinking pattern"""
+
+      def process(self, context):
+          # 1. What do I know?
+          known = self.extract_known_info(context)
+
+          # 2. What do I NEED to know to do my job?
+          required = self.get_requirements_checklist()
+
+          # 3. What's missing?
+          missing = required - known
+
+          # 4. Can I infer anything?
+          inferred = self.apply_thinking_rules(known)
+
+          # 5. What must I ask?
+          must_ask = missing - inferred
+
+          if must_ask:
+              return self.generate_smart_questions(must_ask)
+          else:
+              return self.generate_recommendation(known + inferred)
+
+  ---
+  Summary: The "Thinking" Behavior
+
+  | Behavior                      | How It Works                            |
+  |-------------------------------|-----------------------------------------|
+  | Understand context            | Discovery Agent asks WHY, not just WHAT |
+  | Infer intelligently           | "Customer data" → likely has PII        |
+  | Ask smart questions           | Combine multiple questions logically    |
+  | Know when done                | Track requirements checklist            |
+  | Provide expertise             | Each agent brings deep knowledge        |
+  | Recommend, don't just collect | "I recommend X because Y"               |
+
+  ---
+  Next Step
+
+  Should I create a detailed implementation plan that includes:
+
+  1. Agent prompt templates - System prompts for each agent
+  2. State management - How to track what's known/unknown
+  3. Orchestration logic - When to call which agent
+  4. Integration with current code - How to add to existing azure_ai_agent_service.py

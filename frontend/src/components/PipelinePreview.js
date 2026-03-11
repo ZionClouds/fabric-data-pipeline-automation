@@ -113,6 +113,9 @@ const PipelinePreview = () => {
     loadJobData();
   }, [selectedJobForPreview, setSelectedJobForPreview]);
 
+  // Check if we have a valid pipeline config from AI chat
+  const hasValidConfig = pipelineConfig && pipelineConfig.source_type;
+
   const handleGeneratePipeline = async () => {
     try {
       setIsGenerating(true);
@@ -122,33 +125,74 @@ const PipelinePreview = () => {
       // Extract context from chat messages
       const chatContext = chatMessages.map(msg => `${msg.role}: ${msg.content}`).join('\n\n');
 
-      // Use pipeline name from chat context, or generate one if not available
-      const pipelineName = pipelineConfig.pipeline_name || ('Pipeline_' + Date.now());
-      console.log('Using pipeline name for generation:', pipelineName);
+      // Use pipeline config values from AI chat if available
+      const pipelineName = pipelineConfig.pipeline_name || pipelineConfig.table_name || ('Pipeline_' + Date.now());
+      // Normalize source type to lowercase and handle common mappings
+      let sourceType = (pipelineConfig.source_type || 'blob_storage').toLowerCase().replace(/\s+/g, '_');
+      // Map common variations to valid enum values
+      const sourceTypeMap = {
+        'sql_server': 'sql_server',
+        'sqlserver': 'sql_server',
+        'sql server': 'sql_server',
+        'postgresql': 'postgresql',
+        'postgres': 'postgresql',
+        'mysql': 'mysql',
+        'oracle': 'oracle',
+        'blob_storage': 'blob_storage',
+        'blob storage': 'blob_storage',
+        'azure_sql': 'azure_sql',
+        'azure sql': 'azure_sql',
+        'sharepoint': 'sharepoint',
+        'rest_api': 'rest_api',
+        'db2': 'db2',
+        'onpremise': 'onpremise',
+        'on-premise': 'onpremise',
+        'on premise': 'onpremise'
+      };
+      sourceType = sourceTypeMap[sourceType] || sourceType;
+      const tableName = pipelineConfig.table_name || 'data';
+      const hasTransformations = pipelineConfig.transformations && pipelineConfig.transformations !== 'none';
+      const hasPiiMasking = pipelineConfig.pii_masking && pipelineConfig.pii_masking !== 'none';
+
+      console.log('Generating pipeline with config:', pipelineConfig);
 
       const response = await pipelineApi.generatePipeline({
         workspace_id: selectedWorkspace.id,
         pipeline_name: pipelineName,
-        source_type: 'blob_storage',  // Default to blob storage for now
+        source_type: sourceType,
         source_config: {
-          chat_context: chatContext  // Send entire conversation
+          chat_context: chatContext,
+          source_details: pipelineConfig.source_details,
+          destination: pipelineConfig.destination,
+          table_name: tableName,
+          schedule: pipelineConfig.schedule,
+          pii_masking: pipelineConfig.pii_masking,
+          transformations: pipelineConfig.transformations
         },
-        tables: ['data'],  // Generic table name
-        transformations: [
+        tables: [tableName],
+        transformations: hasTransformations ? [
           {
-            transformation_type: 'filtering',
-            description: 'Extract from chat conversation',
-            source_table: 'bronze_data',
-            target_table: 'silver_data',
+            transformation_type: pipelineConfig.transformations,
+            description: `Transformation: ${pipelineConfig.transformations}`,
+            source_table: `bronze_${tableName}`,
+            target_table: `silver_${tableName}`,
             layer: 'silver'
           }
-        ],
+        ] : [],
         use_medallion: true,
-        schedule: 'manual',
+        schedule: pipelineConfig.frequency || 'manual',
+        pii_detection: hasPiiMasking,
+        pii_masking_type: pipelineConfig.pii_masking,
         created_by: user.email
       });
 
       setGeneratedPipeline(response.data);
+
+      // Set job_id for deployment
+      if (response.data.job_id) {
+        setCurrentJobId(response.data.job_id);
+        console.log('Job ID set for deployment:', response.data.job_id);
+      }
     } catch (err) {
       setError('Failed to generate pipeline: ' + (err.response?.data?.detail || err.message));
     } finally {
@@ -256,7 +300,7 @@ const PipelinePreview = () => {
     );
   }
 
-  if (chatMessages.length === 0 && !generatedPipeline) {
+  if (chatMessages.length === 0 && !generatedPipeline && !hasValidConfig) {
     return (
       <Box
         sx={{
@@ -296,9 +340,9 @@ const PipelinePreview = () => {
           >
             <ArchitectureIcon sx={{ fontSize: 28, color: 'white' }} />
           </Avatar>
-          <Typography 
-            variant="h6" 
-            gutterBottom 
+          <Typography
+            variant="h6"
+            gutterBottom
             sx={{
               fontWeight: 600,
               fontSize: '1.2rem',
@@ -313,7 +357,7 @@ const PipelinePreview = () => {
           <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5, fontSize: '0.85rem' }}>
             Start a conversation in the AI Chat tab to design your data pipeline architecture
           </Typography>
-          <Chip 
+          <Chip
             label="💬 Go to AI Chat"
             sx={{
               background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
@@ -327,6 +371,147 @@ const PipelinePreview = () => {
             }}
           />
         </Box>
+      </Box>
+    );
+  }
+
+  // Show pipeline config summary when we have a valid config from AI chat
+  if (hasValidConfig && !generatedPipeline) {
+    return (
+      <Box
+        sx={{
+          height: '100%',
+          display: 'flex',
+          flexDirection: 'column',
+          bgcolor: '#fafafa',
+          p: 3,
+          overflow: 'auto'
+        }}
+      >
+        <Paper
+          elevation={0}
+          sx={{
+            p: 3,
+            borderRadius: 3,
+            border: '1px solid rgba(102, 126, 234, 0.2)',
+            background: 'linear-gradient(135deg, rgba(102, 126, 234, 0.05) 0%, rgba(118, 75, 162, 0.05) 100%)',
+            maxWidth: 600,
+            mx: 'auto',
+            width: '100%'
+          }}
+        >
+          <Box sx={{ display: 'flex', alignItems: 'center', mb: 3 }}>
+            <Avatar
+              sx={{
+                width: 48,
+                height: 48,
+                mr: 2,
+                background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+              }}
+            >
+              <ArchitectureIcon sx={{ color: 'white' }} />
+            </Avatar>
+            <Box>
+              <Typography variant="h6" sx={{ fontWeight: 600, color: '#1f2937' }}>
+                Pipeline Configuration
+              </Typography>
+              <Typography variant="body2" color="text.secondary">
+                Review your requirements and generate the pipeline
+              </Typography>
+            </Box>
+          </Box>
+
+          <Box sx={{ mb: 3 }}>
+            <Grid container spacing={2}>
+              <Grid item xs={6}>
+                <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600, textTransform: 'uppercase' }}>
+                  Source
+                </Typography>
+                <Typography variant="body1" sx={{ fontWeight: 500 }}>
+                  {pipelineConfig.source_type || 'Not specified'}
+                </Typography>
+                {pipelineConfig.source_details && (
+                  <Typography variant="body2" color="text.secondary">
+                    {pipelineConfig.source_details}
+                  </Typography>
+                )}
+              </Grid>
+              <Grid item xs={6}>
+                <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600, textTransform: 'uppercase' }}>
+                  Destination
+                </Typography>
+                <Typography variant="body1" sx={{ fontWeight: 500 }}>
+                  {pipelineConfig.destination || 'OneLake'}
+                </Typography>
+                {pipelineConfig.table_name && (
+                  <Typography variant="body2" color="text.secondary">
+                    Table: {pipelineConfig.table_name}
+                  </Typography>
+                )}
+              </Grid>
+              <Grid item xs={6}>
+                <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600, textTransform: 'uppercase' }}>
+                  Transformations
+                </Typography>
+                <Typography variant="body1" sx={{ fontWeight: 500 }}>
+                  {pipelineConfig.transformations === 'none' ? 'None' : (pipelineConfig.transformations || 'None')}
+                </Typography>
+              </Grid>
+              <Grid item xs={6}>
+                <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600, textTransform: 'uppercase' }}>
+                  PII/PHI Masking
+                </Typography>
+                <Typography variant="body1" sx={{ fontWeight: 500 }}>
+                  {pipelineConfig.pii_masking === 'none' ? 'None' : (pipelineConfig.pii_masking || 'None')}
+                </Typography>
+              </Grid>
+              <Grid item xs={6}>
+                <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600, textTransform: 'uppercase' }}>
+                  Schedule
+                </Typography>
+                <Typography variant="body1" sx={{ fontWeight: 500 }}>
+                  {pipelineConfig.schedule || 'Manual'}
+                </Typography>
+              </Grid>
+              <Grid item xs={6}>
+                <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600, textTransform: 'uppercase' }}>
+                  Frequency
+                </Typography>
+                <Typography variant="body1" sx={{ fontWeight: 500 }}>
+                  {pipelineConfig.frequency || 'One-time'}
+                </Typography>
+              </Grid>
+            </Grid>
+          </Box>
+
+          {error && (
+            <Alert severity="error" sx={{ mb: 2 }}>
+              {error}
+            </Alert>
+          )}
+
+          <Button
+            variant="contained"
+            size="large"
+            fullWidth
+            onClick={handleGeneratePipeline}
+            disabled={isGenerating}
+            startIcon={isGenerating ? <CircularProgress size={20} color="inherit" /> : <RocketLaunchIcon />}
+            sx={{
+              background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+              py: 1.5,
+              borderRadius: 2,
+              textTransform: 'none',
+              fontWeight: 600,
+              fontSize: '1rem',
+              '&:hover': {
+                background: 'linear-gradient(135deg, #5a6fd6 0%, #6a4190 100%)',
+              }
+            }}
+          >
+            {isGenerating ? 'Generating Pipeline...' : 'Generate Pipeline'}
+          </Button>
+        </Paper>
       </Box>
     );
   }
