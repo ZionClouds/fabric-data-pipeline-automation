@@ -68,6 +68,10 @@ logs/
 htmlcov/
 backend/test/
 
+# Unused/archived code
+backend/_unused/
+_unused/
+
 # Build outputs
 /build
 /dist

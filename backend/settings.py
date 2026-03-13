@@ -24,14 +24,19 @@ DATABASE_URL = (
 )
 
 # ============================================================================
-# ANTHROPIC CLAUDE CONFIGURATION
+# GCP VERTEX AI - CLAUDE CONFIGURATION (PRIMARY LLM)
 # ============================================================================
+GCP_PROJECT_ID = "gemini-for-zion"
+GCP_REGION = "us-east5"
+CLAUDE_MODEL = "claude-opus-4-6"
+CLAUDE_MAX_TOKENS = 16384
+CLAUDE_TEMPERATURE = 0.7
+
+# Legacy Anthropic API (not used - using Vertex AI instead)
 ANTHROPIC_API_KEY = "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"
-CLAUDE_MODEL = "claude-sonnet-4-20250514"
-CLAUDE_MAX_TOKENS = 8000
 
 # ============================================================================
-# AZURE OPENAI CONFIGURATION (GPT-5)
+# AZURE OPENAI CONFIGURATION (LEGACY - Kept as fallback)
 # ============================================================================
 AZURE_OPENAI_ENDPOINT = "https://jayr-mgs8va5p-eastus2.cognitiveservices.azure.com/"
 AZURE_OPENAI_API_KEY = "Fjzxa9pdfaG4At9cM22RKZZAGxjI309WmFSQVxaypAx5UkRmjxnvJQQJ99BJACHYHv6XJ3w3AAAAACOGXwko"
@@ -39,6 +44,12 @@ AZURE_OPENAI_DEPLOYMENT = "gpt-5-chat"
 AZURE_OPENAI_API_VERSION = "2024-12-01-preview"
 AZURE_OPENAI_MAX_TOKENS = 16384
 AZURE_OPENAI_TEMPERATURE = 1.0
+
+# ============================================================================
+# LLM PROVIDER SELECTION
+# ============================================================================
+# Options: "vertex_claude" (default), "azure_openai" (fallback)
+LLM_PROVIDER = "vertex_claude"
 
 # ============================================================================
 # AZURE AI FOUNDRY PROJECT (for Agents with Bing Grounding)

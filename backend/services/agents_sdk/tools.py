@@ -705,3 +705,168 @@ def _get_source_type(source_type: Optional[str]) -> str:
         "databricks": "DatabricksSource",
         "cosmosdb": "CosmosDbSqlApiSource",
     }.get(source_type, "SqlSource")
+
+
+# ============================================================================
+# Tool Registry for Claude Runner
+# ============================================================================
+
+TOOL_REGISTRY = {
+    "update_source_info": {
+        "description": "Update source system information based on user input",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "source_type": {"type": "string", "description": "Type of source (postgresql, sql_server, mysql, oracle, blob_storage, sharepoint, rest_api)"},
+                "location": {"type": "string", "description": "Where source is hosted (cloud, on_premise)"},
+                "database_name": {"type": "string", "description": "Name of the database"},
+                "host": {"type": "string", "description": "Host/server address"},
+                "tables": {"type": "array", "items": {"type": "string"}, "description": "List of tables to migrate"},
+                "volume_gb": {"type": "number", "description": "Estimated data volume in GB"},
+                "change_pattern": {"type": "string", "description": "How data changes (static, insert_only, updates, deletes)"},
+            },
+            "required": ["source_type"]
+        }
+    },
+    "update_business_context": {
+        "description": "Update business context and use case information",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "use_case": {"type": "string", "description": "Primary use case (analytics, ml, operational, archive)"},
+                "consumers": {"type": "array", "items": {"type": "string"}, "description": "Who will use the data"},
+                "has_pii": {"type": "boolean", "description": "Whether data contains PII/PHI"},
+                "compliance_requirements": {"type": "array", "items": {"type": "string"}, "description": "Compliance needs"},
+                "criticality": {"type": "string", "description": "Project criticality (poc, development, production)"},
+                "sla_hours": {"type": "integer", "description": "Required data freshness in hours"},
+            },
+            "required": ["use_case"]
+        }
+    },
+    "update_schedule": {
+        "description": "Update pipeline scheduling requirements",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "frequency": {"type": "string", "description": "How often to run (manual, hourly, daily, weekly, realtime)"},
+                "schedule_time": {"type": "string", "description": "When to run (e.g., '2:00 AM')"},
+                "timezone": {"type": "string", "description": "Timezone for schedule"},
+            },
+            "required": ["frequency"]
+        }
+    },
+    "analyze_source_requirements": {
+        "description": "Analyze the source system and determine connection requirements",
+        "input_schema": {"type": "object", "properties": {}}
+    },
+    "design_architecture": {
+        "description": "Design the optimal pipeline architecture based on gathered requirements",
+        "input_schema": {"type": "object", "properties": {}}
+    },
+    "update_transformations": {
+        "description": "Update transformation requirements for the pipeline",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "pii_columns": {"type": "array", "items": {"type": "string"}, "description": "Columns containing PII that need masking"},
+                "cleaning_steps": {"type": "array", "items": {"type": "string"}, "description": "Data cleaning needed"},
+                "aggregations": {"type": "array", "items": {"type": "string"}, "description": "Aggregations needed"},
+                "custom_logic": {"type": "string", "description": "Description of custom transformation logic"},
+            }
+        }
+    },
+    "generate_pipeline": {
+        "description": "Generate the pipeline definition based on the designed architecture",
+        "input_schema": {"type": "object", "properties": {}}
+    },
+    "get_deployment_preview": {
+        "description": "Get a complete preview of what will be deployed",
+        "input_schema": {"type": "object", "properties": {}}
+    },
+    "deploy_to_fabric": {
+        "description": "Deploy the pipeline to Microsoft Fabric (requires confirmation)",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "confirmed": {"type": "boolean", "description": "User has confirmed deployment"}
+            },
+            "required": ["confirmed"]
+        }
+    },
+    "get_current_status": {
+        "description": "Get the current status of the pipeline design conversation",
+        "input_schema": {"type": "object", "properties": {}}
+    },
+    "reset_conversation": {
+        "description": "Reset the conversation and start fresh",
+        "input_schema": {"type": "object", "properties": {}}
+    },
+}
+
+
+class MockContextWrapper:
+    """Mock context wrapper for Claude runner compatibility"""
+    def __init__(self, context: PipelineContext):
+        self.context = context
+
+
+async def execute_tool(tool_name: str, tool_input: Dict[str, Any], context: PipelineContext) -> Any:
+    """Execute a tool by name with the given input"""
+
+    # Create mock wrapper for compatibility with existing tool functions
+    ctx = MockContextWrapper(context)
+
+    tool_functions = {
+        "update_source_info": lambda: update_source_info.__wrapped__(
+            ctx,
+            source_type=tool_input.get("source_type", ""),
+            location=tool_input.get("location"),
+            database_name=tool_input.get("database_name"),
+            host=tool_input.get("host"),
+            tables=tool_input.get("tables"),
+            volume_gb=tool_input.get("volume_gb"),
+            change_pattern=tool_input.get("change_pattern"),
+        ),
+        "update_business_context": lambda: update_business_context.__wrapped__(
+            ctx,
+            use_case=tool_input.get("use_case", ""),
+            consumers=tool_input.get("consumers"),
+            has_pii=tool_input.get("has_pii", False),
+            compliance_requirements=tool_input.get("compliance_requirements"),
+            criticality=tool_input.get("criticality"),
+            sla_hours=tool_input.get("sla_hours"),
+        ),
+        "update_schedule": lambda: update_schedule.__wrapped__(
+            ctx,
+            frequency=tool_input.get("frequency", "daily"),
+            schedule_time=tool_input.get("schedule_time"),
+            timezone=tool_input.get("timezone", "UTC"),
+        ),
+        "analyze_source_requirements": lambda: analyze_source_requirements.__wrapped__(ctx),
+        "design_architecture": lambda: design_architecture.__wrapped__(ctx),
+        "update_transformations": lambda: update_transformations.__wrapped__(
+            ctx,
+            pii_columns=tool_input.get("pii_columns"),
+            cleaning_steps=tool_input.get("cleaning_steps"),
+            aggregations=tool_input.get("aggregations"),
+            custom_logic=tool_input.get("custom_logic"),
+        ),
+        "generate_pipeline": lambda: generate_pipeline.__wrapped__(ctx),
+        "get_deployment_preview": lambda: get_deployment_preview.__wrapped__(ctx),
+        "deploy_to_fabric": lambda: deploy_to_fabric.__wrapped__(
+            ctx,
+            confirmed=tool_input.get("confirmed", False),
+        ),
+        "get_current_status": lambda: get_current_status.__wrapped__(ctx),
+        "reset_conversation": lambda: reset_conversation.__wrapped__(ctx),
+    }
+
+    if tool_name in tool_functions:
+        try:
+            result = tool_functions[tool_name]()
+            return {"success": True, "result": result}
+        except Exception as e:
+            logger.error(f"Tool execution error: {tool_name} - {e}")
+            return {"success": False, "error": str(e)}
+    else:
+        return {"success": False, "error": f"Unknown tool: {tool_name}"}
