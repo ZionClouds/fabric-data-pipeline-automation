@@ -283,7 +283,7 @@ const PipelinePreview = () => {
               height: 48,
               mx: 'auto',
               mb: 1.5,
-              background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+              background: 'linear-gradient(135deg, #0078D4 0%, #005A9E 100%)',
               boxShadow: '0 4px 16px rgba(102, 126, 234, 0.3)',
             }}
           >
@@ -319,7 +319,7 @@ const PipelinePreview = () => {
               height: 56,
               mx: 'auto',
               mb: 2,
-              background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+              background: 'linear-gradient(135deg, #0078D4 0%, #005A9E 100%)',
               boxShadow: '0 8px 24px rgba(102, 126, 234, 0.3)',
               animation: 'pulse 2s infinite ease-in-out',
               '@keyframes pulse': {
@@ -360,7 +360,7 @@ const PipelinePreview = () => {
           <Chip
             label="💬 Go to AI Chat"
             sx={{
-              background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+              background: 'linear-gradient(135deg, #0078D4 0%, #005A9E 100%)',
               color: 'white',
               fontWeight: 600,
               px: 2,
@@ -406,7 +406,7 @@ const PipelinePreview = () => {
                 width: 48,
                 height: 48,
                 mr: 2,
-                background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                background: 'linear-gradient(135deg, #0078D4 0%, #005A9E 100%)',
               }}
             >
               <ArchitectureIcon sx={{ color: 'white' }} />
@@ -498,7 +498,7 @@ const PipelinePreview = () => {
             disabled={isGenerating}
             startIcon={isGenerating ? <CircularProgress size={20} color="inherit" /> : <RocketLaunchIcon />}
             sx={{
-              background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+              background: 'linear-gradient(135deg, #0078D4 0%, #005A9E 100%)',
               py: 1.5,
               borderRadius: 2,
               textTransform: 'none',
@@ -544,7 +544,7 @@ const PipelinePreview = () => {
               sx={{
                 width: 32,
                 height: 32,
-                background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                background: 'linear-gradient(135deg, #0078D4 0%, #005A9E 100%)',
                 boxShadow: '0 3px 8px rgba(102, 126, 234, 0.3)',
               }}
             >
@@ -613,7 +613,7 @@ const PipelinePreview = () => {
               variant="contained"
               startIcon={isGenerating ? <CircularProgress size={16} color="inherit" /> : <AutoAwesomeIcon />}
               sx={{
-                background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                background: 'linear-gradient(135deg, #0078D4 0%, #005A9E 100%)',
                 borderRadius: 2.5,
                 px: 2.5,
                 py: 1,
@@ -724,11 +724,11 @@ const PipelinePreview = () => {
                       fontSize: '0.9rem',
                       minHeight: 60,
                       '&.Mui-selected': {
-                        color: '#667eea',
+                        color: '#0078D4',
                       },
                     },
                     '& .MuiTabs-indicator': {
-                      background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                      background: 'linear-gradient(135deg, #0078D4 0%, #005A9E 100%)',
                       height: 3,
                     },
                   }}
@@ -869,7 +869,7 @@ const PipelinePreview = () => {
                                   ? 'linear-gradient(180deg, #f59e0b 0%, #d97706 100%)'
                                   : isDataflow
                                   ? 'linear-gradient(180deg, #10b981 0%, #059669 100%)'
-                                  : 'linear-gradient(180deg, #667eea 0%, #764ba2 100%)',
+                                  : 'linear-gradient(180deg, #0078D4 0%, #005A9E 100%)',
                                 borderRadius: '0 1px 1px 0',
                               },
                             }}
@@ -952,7 +952,7 @@ const PipelinePreview = () => {
                                 top: 0,
                                 bottom: 0,
                                 width: '4px',
-                                background: 'linear-gradient(180deg, #8b5cf6 0%, #7c3aed 100%)',
+                                background: 'linear-gradient(180deg, #0078D4 0%, #005A9E 100%)',
                                 borderRadius: '0 3px 3px 0',
                               },
                             }}
@@ -992,9 +992,9 @@ const PipelinePreview = () => {
                                   minWidth: 'auto',
                                   flexShrink: 0,
                                   borderColor: 'rgba(139, 92, 246, 0.3)',
-                                  color: '#8b5cf6',
+                                  color: '#0078D4',
                                   '&:hover': {
-                                    borderColor: '#8b5cf6',
+                                    borderColor: '#0078D4',
                                     bgcolor: 'rgba(139, 92, 246, 0.06)',
                                     transform: 'translateY(-1px)',
                                   },
@@ -1055,7 +1055,7 @@ const PipelinePreview = () => {
                           sx={{
                             width: 28,
                             height: 28,
-                            background: 'linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%)',
+                            background: 'linear-gradient(135deg, #0078D4 0%, #005A9E 100%)',
                           }}
                         >
                           <AccountTreeIcon sx={{ fontSize: 16, color: 'white' }} />
@@ -1109,7 +1109,7 @@ const PipelinePreview = () => {
                                       ? 'linear-gradient(180deg, #f59e0b 0%, #d97706 100%)'
                                       : isDataflow
                                       ? 'linear-gradient(180deg, #10b981 0%, #059669 100%)'
-                                      : 'linear-gradient(180deg, #667eea 0%, #764ba2 100%)',
+                                      : 'linear-gradient(180deg, #0078D4 0%, #005A9E 100%)',
                                     borderRadius: '0 1px 1px 0',
                                   },
                                 }}
@@ -1202,7 +1202,7 @@ const PipelinePreview = () => {
                           sx={{
                             width: 28,
                             height: 28,
-                            background: 'linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%)',
+                            background: 'linear-gradient(135deg, #0078D4 0%, #005A9E 100%)',
                           }}
                         >
                           <MenuBookIcon sx={{ fontSize: 16, color: 'white' }} />
@@ -1242,7 +1242,7 @@ const PipelinePreview = () => {
                                     top: 0,
                                     bottom: 0,
                                     width: '2px',
-                                    background: 'linear-gradient(180deg, #8b5cf6 0%, #7c3aed 100%)',
+                                    background: 'linear-gradient(180deg, #0078D4 0%, #005A9E 100%)',
                                     borderRadius: '0 1px 1px 0',
                                   },
                                 }}
@@ -1281,9 +1281,9 @@ const PipelinePreview = () => {
                                       py: 0.5,
                                       px: 1.2,
                                       borderColor: 'rgba(139, 92, 246, 0.3)',
-                                      color: '#8b5cf6',
+                                      color: '#0078D4',
                                       '&:hover': {
-                                        borderColor: '#8b5cf6',
+                                        borderColor: '#0078D4',
                                         bgcolor: 'rgba(139, 92, 246, 0.04)',
                                       },
                                     }}
@@ -1329,7 +1329,7 @@ const PipelinePreview = () => {
                   border: '2px solid rgba(102, 126, 234, 0.2)',
                 }}
               >
-                <PlayArrowIcon sx={{ fontSize: 28, color: '#667eea' }} />
+                <PlayArrowIcon sx={{ fontSize: 28, color: '#0078D4' }} />
               </Avatar>
               <Typography variant="h6" gutterBottom color="text.primary" fontWeight="600" sx={{ fontSize: '1.1rem' }}>
                 Ready to Generate

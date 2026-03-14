@@ -1,682 +1,451 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { usePipeline } from '../contexts/PipelineContext';
-import { pipelineApi } from '../services/api';
+import { motion, AnimatePresence } from 'framer-motion';
 import {
   Box,
   Typography,
-  Drawer,
-  List,
-  ListItem,
-  ListItemButton,
-  ListItemIcon,
-  ListItemText,
-  Avatar,
-  Chip,
-  Paper,
   IconButton,
+  Avatar,
   Tooltip,
   Snackbar,
-  Alert
+  Alert,
+  Backdrop,
+  Button,
 } from '@mui/material';
 import {
-  Chat as ChatIcon,
-  Assessment as AssessmentIcon,
-  Folder as FolderIcon,
   Menu as MenuIcon,
   ChevronLeft as ChevronLeftIcon,
-  Logout as LogoutIcon
+  Logout as LogoutIcon,
+  Close as CloseIcon,
+  Add as AddIcon,
 } from '@mui/icons-material';
 import PermanentHeader from './PermanentHeader';
 import AIChat from './AIChat';
 import PipelinePreview from './PipelinePreview';
 import PipelineList from './PipelineList';
+import ChatSessions from './ChatSessions';
 import logo from '../assets/images/zionai.png';
+
+const SIDEBAR_WIDTH = 280;
 
 const PipelineBuilderLayout = () => {
   const { user, logout } = useAuth();
-  const { 
-    selectedWorkspace, 
-    selectedJobForPreview, 
-    activeTab, 
-    setActiveTab, 
-    handleTabClick 
+  const {
+    selectedWorkspace,
+    selectedJobForPreview,
+    activeTab,
+    handleTabClick,
+    clearChat,
+    setConversationId,
   } = usePipeline();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [showWorkspaceAlert, setShowWorkspaceAlert] = useState(false);
+  const [showPreviewPanel, setShowPreviewPanel] = useState(false);
 
-  // Auto-switch to preview tab when a job is selected for preview
+  // Auto-open preview panel when a job is selected
   useEffect(() => {
     if (selectedJobForPreview) {
-      handleTabClick('preview');
+      setShowPreviewPanel(true);
     }
-  }, [selectedJobForPreview, handleTabClick]);
+  }, [selectedJobForPreview]);
 
-  // Handle tab navigation with workspace validation
   const handleTabClickWithValidation = (tab) => {
     if (!selectedWorkspace) {
-      // Show alert if no workspace is selected
       setShowWorkspaceAlert(true);
       return;
     }
     handleTabClick(tab);
   };
 
-  // Close alert
+  const handleNewChat = () => {
+    clearChat();
+    setConversationId(null);
+    localStorage.removeItem('conversationId');
+    handleTabClick('chat');
+  };
+
   const handleCloseAlert = (event, reason) => {
-    if (reason === 'clickaway') {
-      return;
-    }
+    if (reason === 'clickaway') return;
     setShowWorkspaceAlert(false);
   };
 
   return (
-    <Box sx={{ display: 'flex', height: '100vh', bgcolor: '#fafafa' }}>
-      {/* Main Content Area */}
-      <Box sx={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
-        {/* Sidebar */}
-        <Drawer
-        variant="permanent"
-        sx={{
-          width: sidebarCollapsed ? 70 : 320,
+    <Box sx={{ display: 'flex', height: '100vh', bgcolor: '#F3F2F1' }}>
+      {/* ========== Dark Sidebar ========== */}
+      <motion.div
+        animate={{ width: sidebarCollapsed ? 0 : SIDEBAR_WIDTH }}
+        transition={{ duration: 0.3, ease: [0.4, 0, 0.2, 1] }}
+        style={{
+          overflow: 'hidden',
           flexShrink: 0,
-          '& .MuiDrawer-paper': {
-            width: sidebarCollapsed ? 70 : 320,
-            boxSizing: 'border-box',
-            background: 'linear-gradient(135deg, hsl(210 100% 45%), hsl(175 70% 50%))',
-            color: 'white',
-            border: 'none',
-            boxShadow: '2px 0 10px rgba(0, 0, 0, 0.1)',
-            transition: 'width 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-            overflow: 'hidden',
-            display: 'flex',
-            flexDirection: 'column',
-            '&::-webkit-scrollbar': {
-              width: '6px',
-            },
-            '&::-webkit-scrollbar-track': {
-              background: 'rgba(255, 255, 255, 0.1)',
-              borderRadius: '3px',
-            },
-            '&::-webkit-scrollbar-thumb': {
-              background: 'rgba(255, 255, 255, 0.3)',
-              borderRadius: '3px',
-              '&:hover': {
-                background: 'rgba(255, 255, 255, 0.4)',
-              },
-            },
-            scrollbarWidth: 'thin',
-            scrollbarColor: 'rgba(255, 255, 255, 0.3) rgba(255, 255, 255, 0.1)',
-          },
+          display: 'flex',
+          flexDirection: 'column',
+          background: '#1B1B1F',
+          height: '100vh',
         }}
       >
-        {/* Sidebar Header */}
         <Box
           sx={{
-            p: sidebarCollapsed ? '24px 8px 20px' : '24px 20px 20px',
-            borderBottom: '1px solid rgba(255, 255, 255, 0.12)',
+            width: SIDEBAR_WIDTH,
+            height: '100%',
             display: 'flex',
-            justifyContent: sidebarCollapsed ? 'center' : 'space-between',
-            alignItems: sidebarCollapsed ? 'center' : 'flex-start',
-            minHeight: sidebarCollapsed ? '80px' : '100px',
-            position: 'relative',
+            flexDirection: 'column',
           }}
         >
-          {!sidebarCollapsed && (
-            <Box sx={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'flex-start' }}>
+          {/* Sidebar Header */}
+          <Box
+            sx={{
+              p: '16px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              borderBottom: '1px solid rgba(255,255,255,0.08)',
+            }}
+          >
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
               <Box
                 sx={{
+                  width: 32,
+                  height: 32,
+                  borderRadius: '8px',
+                  background: '#0078D4',
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
-                  width: '32px',
-                  height: '32px',
-                  borderRadius: '8px',
-                  background: 'rgba(255, 255, 255, 0.2)',
-                  boxShadow: '0 4px 12px rgba(0, 0, 0, 0.15)',
-                  mr: 2,
-                  backdropFilter: 'blur(10px)',
-                  border: '1px solid rgba(255, 255, 255, 0.3)',
+                  boxShadow: '0 2px 8px rgba(0,120,212,0.3)',
                 }}
               >
-                <img 
-                  src={logo} 
-                  alt="Pipeline Builder Logo" 
-                  style={{ 
-                    width: '20px', 
-                    height: '20px',
-                    filter: 'brightness(0) invert(1)',
-                  }} 
+                <img
+                  src={logo}
+                  alt="Logo"
+                  style={{ width: 18, height: 18, filter: 'brightness(0) invert(1)' }}
                 />
               </Box>
-              <Box sx={{ display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
-                <Typography
-                  variant="h6"
-                  sx={{
-                    fontSize: '1.3rem',
-                    fontWeight: 700,
-                    margin: 0,
-                    color: 'white',
-                    lineHeight: 1.2,
-                    letterSpacing: '-0.02em',
-                    textShadow: '0 1px 3px rgba(0, 0, 0, 0.2)',
-                  }}
-                >
-                  Pipeline Builder
-                </Typography>
-                <Typography
-                  variant="caption"
-                  sx={{
-                    fontSize: '0.8rem',
-                    opacity: 0.85,
-                    mt: 0.8,
-                    display: 'block',
-                    color: 'rgba(255, 255, 255, 0.9)',
-                    fontWeight: 400,
-                    lineHeight: 1.3,
-                    letterSpacing: '0.02em',
-                    whiteSpace: 'nowrap',
-                  }}
-                >
-                  AI-Powered Data Pipelines
-                </Typography>
-              </Box>
-            </Box>
-          )}
-          <IconButton
-            onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
-            sx={{
-              color: 'white',
-              bgcolor: 'rgba(255, 255, 255, 0.1)',
-              width: 32,
-              height: 32,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              borderRadius: '8px',
-              border: '1px solid rgba(255, 255, 255, 0.15)',
-              backdropFilter: 'blur(10px)',
-              transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
-              alignSelf: sidebarCollapsed ? 'center' : 'flex-start',
-              mt: sidebarCollapsed ? 0 : 0.5,
-              '&:hover': {
-                bgcolor: 'rgba(255, 255, 255, 0.2)',
-                transform: 'scale(1.05)',
-                boxShadow: '0 2px 8px rgba(0, 0, 0, 0.15)',
-              },
-              '&:active': {
-                transform: 'scale(0.95)',
-              },
-            }}
-            size="small"
-          >
-            {sidebarCollapsed ? <MenuIcon fontSize="small" /> : <ChevronLeftIcon fontSize="small" />}
-          </IconButton>
-        </Box>
-
-
-
-        {/* Navigation Menu */}
-        <Box 
-          sx={{ 
-            flex: 1, 
-            display: 'flex', 
-            flexDirection: 'column',
-            overflow: 'hidden',
-            minHeight: 0, // Important for flex containers with scrollable children
-          }}
-        >
-          <Box 
-            sx={{ 
-              flex: 1,
-              overflowY: 'auto',
-              minHeight: 0, // Important for proper flex behavior
-              '&::-webkit-scrollbar': {
-                width: '6px',
-              },
-              '&::-webkit-scrollbar-track': {
-                background: 'rgba(255, 255, 255, 0.1)',
-                borderRadius: '3px',
-              },
-              '&::-webkit-scrollbar-thumb': {
-                background: 'rgba(255, 255, 255, 0.3)',
-                borderRadius: '3px',
-                '&:hover': {
-                  background: 'rgba(255, 255, 255, 0.4)',
-                },
-              },
-              scrollbarWidth: 'thin',
-              scrollbarColor: 'rgba(255, 255, 255, 0.3) rgba(255, 255, 255, 0.1)',
-            }}
-          >
-            <List sx={{ pt: 2, pb: 1 }}>
-              <ListItem disablePadding>
-                <ListItemButton
-                  onClick={() => handleTabClickWithValidation('chat')}
-                  selected={activeTab === 'chat'}
-                  sx={{
-                    mx: 1,
-                    borderRadius: 2,
-                    color: 'rgba(255, 255, 255, 0.8)',
-                    transition: 'all 0.2s',
-                    '&:hover': {
-                      bgcolor: 'rgba(255, 255, 255, 0.1)',
-                      color: 'white',
-                      transform: 'translateX(4px)',
-                    },
-                    '&.Mui-selected': {
-                      bgcolor: 'rgba(255, 255, 255, 0.15)',
-                      color: 'white',
-                      transform: 'translateX(8px)',
-                      boxShadow: '0 4px 12px rgba(0, 0, 0, 0.15)',
-                      '&:hover': {
-                        bgcolor: 'rgba(255, 255, 255, 0.2)',
-                      },
-                    },
-                  }}
-                >
-                  <ListItemIcon sx={{ color: 'inherit', minWidth: sidebarCollapsed ? 0 : 40 }}>
-                    <ChatIcon />
-                  </ListItemIcon>
-                  {!sidebarCollapsed && (
-                    <ListItemText 
-                      primary="AI Chat" 
-                      primaryTypographyProps={{
-                        fontSize: '14px',
-                        fontWeight: 500,
-                      }}
-                    />
-                  )}
-                </ListItemButton>
-              </ListItem>
-
-              <ListItem disablePadding>
-                <ListItemButton
-                  onClick={() => handleTabClickWithValidation('preview')}
-                  selected={activeTab === 'preview'}
-                  sx={{
-                    mx: 1,
-                    borderRadius: 2,
-                    color: 'rgba(255, 255, 255, 0.8)',
-                    transition: 'all 0.2s',
-                    '&:hover': {
-                      bgcolor: 'rgba(255, 255, 255, 0.1)',
-                      color: 'white',
-                      transform: 'translateX(4px)',
-                    },
-                    '&.Mui-selected': {
-                      bgcolor: 'rgba(255, 255, 255, 0.15)',
-                      color: 'white',
-                      transform: 'translateX(8px)',
-                      boxShadow: '0 4px 12px rgba(0, 0, 0, 0.15)',
-                      '&:hover': {
-                        bgcolor: 'rgba(255, 255, 255, 0.2)',
-                      },
-                    },
-                  }}
-                >
-                  <ListItemIcon sx={{ color: 'inherit', minWidth: sidebarCollapsed ? 0 : 40 }}>
-                    <AssessmentIcon />
-                  </ListItemIcon>
-                  {!sidebarCollapsed && (
-                    <ListItemText 
-                      primary="Pipeline Preview" 
-                      primaryTypographyProps={{
-                        fontSize: '14px',
-                        fontWeight: 500,
-                      }}
-                    />
-                  )}
-                </ListItemButton>
-              </ListItem>
-
-              <ListItem disablePadding>
-                <ListItemButton
-                  onClick={() => handleTabClickWithValidation('pipelines')}
-                  selected={activeTab === 'pipelines'}
-                  sx={{
-                    mx: 1,
-                    borderRadius: 2,
-                    color: 'rgba(255, 255, 255, 0.8)',
-                    transition: 'all 0.2s',
-                    '&:hover': {
-                      bgcolor: 'rgba(255, 255, 255, 0.1)',
-                      color: 'white',
-                      transform: 'translateX(4px)',
-                    },
-                    '&.Mui-selected': {
-                      bgcolor: 'rgba(255, 255, 255, 0.15)',
-                      color: 'white',
-                      transform: 'translateX(8px)',
-                      boxShadow: '0 4px 12px rgba(0, 0, 0, 0.15)',
-                      '&:hover': {
-                        bgcolor: 'rgba(255, 255, 255, 0.2)',
-                      },
-                    },
-                  }}
-                >
-                  <ListItemIcon sx={{ color: 'inherit', minWidth: sidebarCollapsed ? 0 : 40 }}>
-                    <FolderIcon />
-                  </ListItemIcon>
-                  {!sidebarCollapsed && (
-                    <ListItemText 
-                      primary="My Pipelines" 
-                      primaryTypographyProps={{
-                        fontSize: '14px',
-                        fontWeight: 500,
-                      }}
-                    />
-                  )}
-                </ListItemButton>
-              </ListItem>
-            </List>
-          </Box>
-
-          {/* Sidebar Footer - Fixed at bottom */}
-          <Box
-            sx={{
-              p: '16px 20px 24px',
-              borderTop: '1px solid rgba(255, 255, 255, 0.1)',
-              flexShrink: 0,
-              mt: 'auto',
-            }}
-          >
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-              <Avatar
+              <Typography
                 sx={{
-                  width: 28,
-                  height: 28,
-                  bgcolor: 'rgba(255, 255, 255, 0.2)',
-                  fontSize: '12px',
-                  flexShrink: 0,
-                  border: '1px solid rgba(255, 255, 255, 0.3)',
+                  color: '#E8E6E3',
+                  fontSize: '14px',
+                  fontWeight: 600,
+                  letterSpacing: '-0.01em',
                 }}
               >
-                👤
-              </Avatar>
-              {!sidebarCollapsed && (
-                <Box sx={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                  <Box sx={{ flex: 1, minWidth: 0, mr: 1 }}>
-                    <Typography
-                      variant="body2"
-                      sx={{
-                        fontSize: '13px',
-                        fontWeight: 500,
-                        color: 'white',
-                        mb: 0.25,
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
-                        whiteSpace: 'nowrap',
-                        lineHeight: 1.2,
-                      }}
-                    >
-                      {user?.name || 'User'}
-                    </Typography>
-                    <Tooltip title={user?.email || 'No email'} placement="top">
-                      <Typography
-                        variant="caption"
-                        sx={{
-                          fontSize: '11px',
-                          color: 'rgba(255, 255, 255, 0.7)',
-                          overflow: 'hidden',
-                          textOverflow: 'ellipsis',
-                          whiteSpace: 'nowrap',
-                          display: 'block',
-                          lineHeight: 1.2,
-                          cursor: 'help',
-                        }}
-                      >
-                        {user?.email || 'No email'}
-                      </Typography>
-                    </Tooltip>
-                  </Box>
-                  <Tooltip title="Logout" placement="top">
-                    <IconButton
-                      onClick={logout}
-                      sx={{
-                        color: 'rgba(255, 255, 255, 0.7)',
-                        width: 32,
-                        height: 32,
-                        flexShrink: 0,
-                        '&:hover': {
-                          color: 'white',
-                          bgcolor: 'rgba(255, 255, 255, 0.1)',
-                        },
-                      }}
-                      size="small"
-                    >
-                      <LogoutIcon fontSize="medium" />
-                    </IconButton>
-                  </Tooltip>
-                </Box>
-              )}
+                Pipeline Builder
+              </Typography>
             </Box>
+            <Tooltip title="Collapse sidebar">
+              <IconButton
+                onClick={() => setSidebarCollapsed(true)}
+                size="small"
+                sx={{
+                  color: '#A19F9D',
+                  '&:hover': { color: '#E8E6E3', bgcolor: 'rgba(255,255,255,0.06)' },
+                }}
+              >
+                <ChevronLeftIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
           </Box>
-        </Box>
-      </Drawer>
 
-      {/* Main Content */}
-      <Box component="main" sx={{ flexGrow: 1, display: 'flex', flexDirection: 'column' }}>
-        {/* Permanent Header */}
-        <PermanentHeader activeTab={activeTab} />
-        
-        {selectedWorkspace ? (
-          <Box
-            sx={{
-              flex: 1,
-              p: activeTab === 'chat' ? 0 : 4, // Remove padding for chat to maximize space
-              overflow: 'hidden', // Changed from 'auto' to 'hidden' for chat
-              bgcolor: '#fafafa',
-            }}
-          >
-            {activeTab === 'chat' && <AIChat />}
-            {activeTab === 'preview' && <PipelinePreview />}
-            {activeTab === 'pipelines' && <PipelineList />}
-          </Box>
-        ) : (
-          <Box
-            sx={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              height: '100%',
-              background: 'linear-gradient(135deg, hsl(170 25% 98%), hsl(175 30% 95%))',
-              position: 'relative',
-              '&::before': {
-                content: '""',
-                position: 'absolute',
-                top: 0,
-                left: 0,
-                right: 0,
-                bottom: 0,
-                background: 'radial-gradient(circle at 50% 50%, rgba(0, 123, 255, 0.05) 0%, transparent 70%)',
-                pointerEvents: 'none',
-              }
-            }}
-          >
-            <Paper
-              elevation={0}
+          {/* New Chat Button */}
+          <Box sx={{ p: '12px 16px 8px' }}>
+            <Button
+              fullWidth
+              variant="outlined"
+              startIcon={<AddIcon />}
+              onClick={handleNewChat}
               sx={{
-                textAlign: 'center',
-                maxWidth: 520,
-                p: 3.5,
-                bgcolor: 'rgba(255, 255, 255, 0.8)',
-                backdropFilter: 'blur(20px)',
-                borderRadius: 3,
-                border: '1px solid rgba(255, 255, 255, 0.6)',
-                boxShadow: '0 16px 48px rgba(0, 0, 0, 0.08)',
-                position: 'relative',
-                zIndex: 1,
+                color: '#E8E6E3',
+                borderColor: 'rgba(255,255,255,0.15)',
+                borderRadius: '8px',
+                py: 1,
+                fontSize: '13px',
+                fontWeight: 500,
+                justifyContent: 'flex-start',
+                '&:hover': {
+                  borderColor: 'rgba(255,255,255,0.3)',
+                  bgcolor: 'rgba(255,255,255,0.06)',
+                },
               }}
             >
-              <Box
-                sx={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  width: '56px',
-                  height: '56px',
-                  borderRadius: '14px',
-                  background: 'linear-gradient(135deg, hsl(210 100% 45%), hsl(175 70% 50%))',
-                  boxShadow: '0 6px 20px rgba(0, 123, 255, 0.25)',
-                  mb: 2.5,
-                  mx: 'auto',
-                  transition: 'all 0.3s ease',
-                  position: 'relative',
-                  '&::before': {
-                    content: '""',
-                    position: 'absolute',
-                    inset: '-2px',
-                    borderRadius: '16px',
-                    background: 'linear-gradient(135deg, hsl(210 100% 45%), hsl(175 70% 50%))',
-                    opacity: 0.2,
-                    filter: 'blur(5px)',
-                    transition: 'all 0.3s ease',
-                  },
-                  '&:hover': {
-                    transform: 'translateY(-3px) scale(1.05)',
-                    boxShadow: '0 12px 32px rgba(0, 123, 255, 0.35)',
-                    '&::before': {
-                      opacity: 0.4,
-                      filter: 'blur(8px)',
-                    }
-                  }
-                }}
-              >
-                <img 
-                  src={logo} 
-                  alt="Pipeline Builder Logo" 
-                  style={{ 
-                    width: '32px', 
-                    height: '32px',
-                    filter: 'brightness(0) invert(1)',
-                    position: 'relative',
-                    zIndex: 1,
-                  }} 
-                />
-              </Box>
+              New Chat
+            </Button>
+          </Box>
+
+          {/* Chat Sessions List */}
+          <Box sx={{ flex: 1, overflow: 'hidden', minHeight: 0 }}>
+            <ChatSessions />
+          </Box>
+
+          {/* Sidebar Footer — User Profile */}
+          <Box
+            sx={{
+              p: '12px 16px',
+              borderTop: '1px solid rgba(255,255,255,0.08)',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 1.5,
+            }}
+          >
+            <Avatar
+              sx={{
+                width: 28,
+                height: 28,
+                bgcolor: '#0078D4',
+                fontSize: '12px',
+                fontWeight: 600,
+              }}
+            >
+              {user?.name?.charAt(0)?.toUpperCase() || 'U'}
+            </Avatar>
+            <Box sx={{ flex: 1, minWidth: 0 }}>
               <Typography
-                variant="h5"
-                component="h2"
                 sx={{
-                  fontSize: '1.6rem',
-                  fontWeight: 700,
-                  background: 'linear-gradient(135deg, hsl(210 100% 45%), hsl(175 70% 50%))',
-                  backgroundClip: 'text',
-                  WebkitBackgroundClip: 'text',
-                  color: 'transparent',
-                  WebkitTextFillColor: 'transparent',
-                  mb: 1.5,
-                  letterSpacing: '-0.02em',
+                  color: '#E8E6E3',
+                  fontSize: '13px',
+                  fontWeight: 500,
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                  lineHeight: 1.3,
                 }}
               >
-                Welcome to Pipeline Builder!
+                {user?.name || 'User'}
               </Typography>
-              <Typography
-                variant="body2"
+              <Tooltip title={user?.email || ''} placement="top">
+                <Typography
+                  sx={{
+                    color: '#A19F9D',
+                    fontSize: '11px',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                    lineHeight: 1.3,
+                    cursor: 'help',
+                  }}
+                >
+                  {user?.email || ''}
+                </Typography>
+              </Tooltip>
+            </Box>
+            <Tooltip title="Logout">
+              <IconButton
+                onClick={logout}
+                size="small"
                 sx={{
-                  fontSize: '0.95rem',
-                  color: '#64748b',
-                  mb: 3,
-                  lineHeight: 1.5,
-                  fontWeight: 400,
-                  maxWidth: '420px',
-                  mx: 'auto',
+                  color: '#A19F9D',
+                  '&:hover': { color: '#E8E6E3', bgcolor: 'rgba(255,255,255,0.06)' },
                 }}
               >
-                Select a workspace from the header to start building intelligent data pipelines with AI assistance.
-              </Typography>
-              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
-                {[
-                  { icon: '💬', text: 'Chat with AI to build pipelines', desc: 'Natural language interface' },
-                  { icon: '📊', text: 'Preview and validate pipelines', desc: 'Real-time visualization' },
-                  { icon: '📁', text: 'Manage pipeline projects', desc: 'Organize your work' },
-                ].map((feature, index) => (
-                  <Paper
-                    key={index}
-                    elevation={0}
-                    sx={{
+                <LogoutIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
+          </Box>
+        </Box>
+      </motion.div>
+
+      {/* ========== Main Content ========== */}
+      <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', minWidth: 0 }}>
+        {/* Header with expand button when sidebar collapsed */}
+        <Box sx={{ display: 'flex', alignItems: 'stretch' }}>
+          {sidebarCollapsed && (
+            <Box
+              sx={{
+                display: 'flex',
+                alignItems: 'center',
+                px: 1,
+                bgcolor: 'rgba(255,255,255,0.95)',
+                borderBottom: '1px solid #EDEBE9',
+              }}
+            >
+              <Tooltip title="Expand sidebar">
+                <IconButton
+                  onClick={() => setSidebarCollapsed(false)}
+                  size="small"
+                  sx={{ color: '#605E5C' }}
+                >
+                  <MenuIcon fontSize="small" />
+                </IconButton>
+              </Tooltip>
+            </Box>
+          )}
+          <Box sx={{ flex: 1 }}>
+            <PermanentHeader
+              activeTab={activeTab}
+              onTabChange={handleTabClickWithValidation}
+              onPreviewOpen={() => setShowPreviewPanel(true)}
+            />
+          </Box>
+        </Box>
+
+        {/* Content Area with Transitions */}
+        {selectedWorkspace ? (
+          <Box sx={{ flex: 1, overflow: 'hidden', position: 'relative' }}>
+            <AnimatePresence mode="wait">
+              <motion.div
+                key={activeTab}
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -8 }}
+                transition={{ duration: 0.2, ease: 'easeInOut' }}
+                style={{ height: '100%' }}
+              >
+                {activeTab === 'chat' && <AIChat />}
+                {activeTab === 'pipelines' && <PipelineList />}
+                {activeTab === 'preview' && <PipelinePreview />}
+              </motion.div>
+            </AnimatePresence>
+
+            {/* Pipeline Preview Slide-Over Panel */}
+            <AnimatePresence>
+              {showPreviewPanel && activeTab !== 'preview' && (
+                <>
+                  <Backdrop
+                    open
+                    onClick={() => setShowPreviewPanel(false)}
+                    sx={{ position: 'absolute', zIndex: 1100, bgcolor: 'rgba(0,0,0,0.3)' }}
+                  />
+                  <motion.div
+                    initial={{ x: '100%' }}
+                    animate={{ x: 0 }}
+                    exit={{ x: '100%' }}
+                    transition={{ type: 'spring', damping: 28, stiffness: 220 }}
+                    style={{
+                      position: 'absolute',
+                      right: 0,
+                      top: 0,
+                      bottom: 0,
+                      width: '55%',
+                      minWidth: 500,
+                      maxWidth: 800,
+                      zIndex: 1200,
+                      background: '#FFFFFF',
+                      boxShadow: '-4px 0 24px rgba(0,0,0,0.12)',
                       display: 'flex',
-                      alignItems: 'center',
-                      gap: 2,
-                      p: 2,
-                      bgcolor: 'rgba(255, 255, 255, 0.9)',
-                      borderRadius: 1.5,
-                      border: '1px solid rgba(255, 255, 255, 0.8)',
-                      boxShadow: '0 3px 12px rgba(0, 0, 0, 0.04)',
-                      transition: 'all 0.3s ease',
-                      position: 'relative',
+                      flexDirection: 'column',
                       overflow: 'hidden',
-                      '&::before': {
-                        content: '""',
-                        position: 'absolute',
-                        left: 0,
-                        top: 0,
-                        bottom: 0,
-                        width: '3px',
-                        background: 'linear-gradient(135deg, hsl(210 100% 45%), hsl(175 70% 50%))',
-                        transform: 'translateX(-3px)',
-                        transition: 'transform 0.3s ease',
-                      },
-                      '&:hover': {
-                        transform: 'translateY(-2px)',
-                        boxShadow: '0 8px 24px rgba(0, 123, 255, 0.12)',
-                        bgcolor: 'rgba(255, 255, 255, 0.95)',
-                        '&::before': {
-                          transform: 'translateX(0)',
-                        }
-                      },
                     }}
+                  >
+                    <Box
+                      sx={{
+                        p: '12px 16px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        borderBottom: '1px solid #EDEBE9',
+                        bgcolor: '#FAFAF9',
+                      }}
+                    >
+                      <Typography sx={{ fontWeight: 600, fontSize: '14px', color: '#323130' }}>
+                        Pipeline Preview
+                      </Typography>
+                      <IconButton
+                        onClick={() => setShowPreviewPanel(false)}
+                        size="small"
+                        sx={{ color: '#605E5C' }}
+                      >
+                        <CloseIcon fontSize="small" />
+                      </IconButton>
+                    </Box>
+                    <Box sx={{ flex: 1, overflow: 'auto' }}>
+                      <PipelinePreview />
+                    </Box>
+                  </motion.div>
+                </>
+              )}
+            </AnimatePresence>
+          </Box>
+        ) : (
+          /* Welcome Screen — No Workspace Selected */
+          <Box
+            sx={{
+              flex: 1,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              background: '#FAFAF9',
+            }}
+          >
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.5, delay: 0.2 }}
+            >
+              <Box sx={{ textAlign: 'center', maxWidth: 420, p: 4 }}>
+                <Box
+                  sx={{
+                    width: 56,
+                    height: 56,
+                    borderRadius: '14px',
+                    background: '#0078D4',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    mx: 'auto',
+                    mb: 3,
+                    boxShadow: '0 4px 16px rgba(0,120,212,0.25)',
+                  }}
+                >
+                  <img
+                    src={logo}
+                    alt="Logo"
+                    style={{ width: 28, height: 28, filter: 'brightness(0) invert(1)' }}
+                  />
+                </Box>
+                <Typography
+                  variant="h5"
+                  sx={{ fontWeight: 700, color: '#323130', mb: 1.5, letterSpacing: '-0.02em' }}
+                >
+                  Welcome to Pipeline Builder
+                </Typography>
+                <Typography
+                  variant="body2"
+                  sx={{ color: '#605E5C', mb: 4, lineHeight: 1.6, fontSize: '14px' }}
+                >
+                  Select a workspace from the header to start building intelligent data pipelines with AI.
+                </Typography>
+                {[
+                  { icon: '💬', label: 'Chat with AI to design pipelines' },
+                  { icon: '📊', label: 'Preview and validate before deploy' },
+                  { icon: '📁', label: 'Manage all your pipeline projects' },
+                ].map((item, i) => (
+                  <motion.div
+                    key={i}
+                    initial={{ opacity: 0, x: -10 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    transition={{ delay: 0.4 + i * 0.1 }}
                   >
                     <Box
                       sx={{
                         display: 'flex',
                         alignItems: 'center',
-                        justifyContent: 'center',
-                        width: '36px',
-                        height: '36px',
-                        borderRadius: '9px',
-                        background: 'linear-gradient(135deg, rgba(0, 123, 255, 0.1), rgba(32, 201, 151, 0.1))',
-                        fontSize: '16px',
-                        flexShrink: 0,
+                        gap: 1.5,
+                        p: 1.5,
+                        mb: 1,
+                        bgcolor: '#FFFFFF',
+                        borderRadius: '8px',
+                        border: '1px solid #EDEBE9',
+                        transition: 'all 0.2s',
+                        '&:hover': {
+                          borderColor: '#0078D4',
+                          boxShadow: '0 2px 8px rgba(0,120,212,0.1)',
+                        },
                       }}
                     >
-                      {feature.icon}
-                    </Box>
-                    <Box sx={{ textAlign: 'left', flex: 1 }}>
-                      <Typography 
-                        variant="subtitle2" 
-                        sx={{ 
-                          fontSize: '0.9rem',
-                          fontWeight: 600,
-                          color: '#1e293b',
-                          mb: 0.2,
-                          lineHeight: 1.2,
-                        }}
-                      >
-                        {feature.text}
-                      </Typography>
-                      <Typography 
-                        variant="caption" 
-                        sx={{ 
-                          fontSize: '0.75rem',
-                          color: '#64748b',
-                          fontWeight: 400,
-                          lineHeight: 1.2,
-                        }}
-                      >
-                        {feature.desc}
+                      <Box sx={{ fontSize: '16px', width: 28, textAlign: 'center' }}>{item.icon}</Box>
+                      <Typography sx={{ fontSize: '13px', fontWeight: 500, color: '#323130' }}>
+                        {item.label}
                       </Typography>
                     </Box>
-                  </Paper>
+                  </motion.div>
                 ))}
               </Box>
-            </Paper>
+            </motion.div>
           </Box>
         )}
       </Box>
 
-      {/* Workspace Selection Alert Snackbar */}
+      {/* Workspace Selection Alert */}
       <Snackbar
         open={showWorkspaceAlert}
         autoHideDuration={1500}
@@ -688,17 +457,11 @@ const PipelineBuilderLayout = () => {
           onClose={handleCloseAlert}
           severity="warning"
           variant="filled"
-          sx={{
-            width: '100%',
-            fontSize: '14px',
-            fontWeight: 600,
-            boxShadow: '0 8px 24px rgba(255, 152, 0, 0.3)',
-          }}
+          sx={{ fontSize: '13px', fontWeight: 600 }}
         >
-          Please select a workspace from the header first!
+          Please select a workspace first
         </Alert>
       </Snackbar>
-      </Box>
     </Box>
   );
 };

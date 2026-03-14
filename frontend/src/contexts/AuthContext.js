@@ -3,7 +3,12 @@ import { PublicClientApplication } from '@azure/msal-browser';
 
 const AuthContext = createContext();
 
-// MSAL Configuration
+// Dev mode: skip MSAL entirely when REACT_APP_DISABLE_AUTH is set
+const DISABLE_AUTH = window._env_?.REACT_APP_DISABLE_AUTH || process.env.REACT_APP_DISABLE_AUTH || 'false';
+const DEV_AUTH_ENABLED = DISABLE_AUTH === 'true' || DISABLE_AUTH === true;
+const DEV_USER_EMAIL = window._env_?.REACT_APP_DEV_USER_EMAIL || process.env.REACT_APP_DEV_USER_EMAIL || 'dev123@gmail.com';
+
+// MSAL Configuration (only used when auth is enabled)
 const msalConfig = {
   auth: {
     clientId: '0944e22d-d0f1-40c1-a9fc-f422c05949f3',
@@ -20,7 +25,24 @@ const loginRequest = {
   scopes: ['User.Read'],
 };
 
-const msalInstance = new PublicClientApplication(msalConfig);
+// Only create MSAL instance if auth is enabled
+const msalInstance = DEV_AUTH_ENABLED ? null : new PublicClientApplication(msalConfig);
+
+// Module-level promise to prevent React StrictMode double-mount from calling
+// handleRedirectPromise twice (which causes the second call to hang).
+let msalInitPromise = null;
+
+function getMsalInitResult() {
+  if (!msalInstance) return Promise.resolve(null);
+  if (!msalInitPromise) {
+    msalInitPromise = (async () => {
+      await msalInstance.initialize();
+      const response = await msalInstance.handleRedirectPromise();
+      return response;
+    })();
+  }
+  return msalInitPromise;
+}
 
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
@@ -28,12 +50,23 @@ export const AuthProvider = ({ children }) => {
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
+    // Dev mode: bypass MSAL, set hardcoded user immediately
+    if (DEV_AUTH_ENABLED) {
+      console.log(`[Auth] Dev mode enabled — using ${DEV_USER_EMAIL}`);
+      setUser({
+        email: DEV_USER_EMAIL,
+        name: DEV_USER_EMAIL.split('@')[0],
+      });
+      setIsAuthenticated(true);
+      localStorage.setItem('msal_token', 'dev-token');
+      localStorage.setItem('user_email', DEV_USER_EMAIL);
+      setIsLoading(false);
+      return;
+    }
+
     const initAuth = async () => {
       try {
-        await msalInstance.initialize();
-
-        // Handle redirect response
-        const response = await msalInstance.handleRedirectPromise();
+        const response = await getMsalInitResult();
 
         if (response) {
           // Successful login
@@ -86,21 +119,16 @@ export const AuthProvider = ({ children }) => {
 
     // Handle storage changes (e.g., logout from another tab or external clearing)
     const handleStorageChange = (e) => {
-      console.log('Storage event detected:', { key: e.key, oldValue: e.oldValue, newValue: e.newValue });
-      
       // Be very conservative about storage-based logout
       // Only logout if this was clearly an intentional token removal
       if ((e.key === 'msal_token' || e.key === 'user_email') && e.newValue === null && e.oldValue) {
         // Double-check that both tokens are actually gone
         const token = localStorage.getItem('msal_token');
         const email = localStorage.getItem('user_email');
-        
+
         if (!token && !email) {
-          console.log('Both tokens cleared externally - logging out');
           setUser(null);
           setIsAuthenticated(false);
-        } else {
-          console.log('Only one token cleared or tokens still present - not logging out');
         }
       }
     };
@@ -130,6 +158,7 @@ export const AuthProvider = ({ children }) => {
   };
 
   const login = async () => {
+    if (DEV_AUTH_ENABLED) return; // No-op in dev mode
     try {
       setIsLoading(true);
       await msalInstance.loginRedirect(loginRequest);
@@ -141,6 +170,15 @@ export const AuthProvider = ({ children }) => {
   };
 
   const logout = async () => {
+    if (DEV_AUTH_ENABLED) {
+      // In dev mode, just reset state
+      setUser(null);
+      setIsAuthenticated(false);
+      localStorage.removeItem('msal_token');
+      localStorage.removeItem('user_email');
+      return;
+    }
+
     try {
       // Update state immediately to show login screen
       setUser(null);
@@ -178,7 +216,7 @@ export const AuthProvider = ({ children }) => {
       // Ensure state is updated even if logout fails
       setUser(null);
       setIsAuthenticated(false);
-      
+
       // Force clear storage even on error
       localStorage.removeItem('msal_token');
       localStorage.removeItem('user_email');

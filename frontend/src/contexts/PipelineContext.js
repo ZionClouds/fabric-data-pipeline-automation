@@ -12,6 +12,7 @@ export const PipelineProvider = ({ children }) => {
   const [currentJobId, setCurrentJobId] = useState(null);
   const [selectedJobForPreview, setSelectedJobForPreview] = useState(null);
   const [refreshPipelineList, setRefreshPipelineList] = useState(0);
+  const [refreshConversations, setRefreshConversations] = useState(0);
   const [activeTab, setActiveTab] = useState('chat');
   const [isTemporaryChat, setIsTemporaryChat] = useState(false);
   const [pipelineConfig, setPipelineConfig] = useState({
@@ -84,6 +85,10 @@ export const PipelineProvider = ({ children }) => {
     setRefreshPipelineList(prev => prev + 1);
   };
 
+  const triggerConversationsRefresh = () => {
+    setRefreshConversations(prev => prev + 1);
+  };
+
   // Handle tab navigation
   const handleTabClick = (tab) => {
     setActiveTab(tab);
@@ -112,6 +117,8 @@ export const PipelineProvider = ({ children }) => {
         setSelectedJobForPreview,
         refreshPipelineList,
         triggerPipelineListRefresh,
+        refreshConversations,
+        triggerConversationsRefresh,
         pipelineConfig,
         updatePipelineConfig,
         resetPipeline,

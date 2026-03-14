@@ -134,7 +134,7 @@ const NotebookViewer = ({ notebook, onClose }) => {
     >
       <DialogTitle
         sx={{
-          background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+          background: 'linear-gradient(135deg, #0078D4 0%, #005A9E 100%)',
           color: 'white',
           py: 2,
           px: 3,
@@ -292,7 +292,7 @@ const NotebookViewer = ({ notebook, onClose }) => {
                     sx={{
                       width: 20,
                       height: 20,
-                      bgcolor: '#3b82f6',
+                      bgcolor: '#0078D4',
                     }}
                   >
                     <Typography sx={{ fontSize: '0.65rem', fontWeight: 'bold', color: 'white' }}>
@@ -418,12 +418,12 @@ const NotebookViewer = ({ notebook, onClose }) => {
             startIcon={<DownloadIcon />}
             sx={{
               borderColor: 'rgba(102, 126, 234, 0.3)',
-              color: '#667eea',
+              color: '#0078D4',
               borderRadius: 2,
               textTransform: 'none',
               fontWeight: 600,
               '&:hover': {
-                borderColor: '#667eea',
+                borderColor: '#0078D4',
                 bgcolor: 'rgba(102, 126, 234, 0.04)',
               },
             }}
@@ -437,12 +437,12 @@ const NotebookViewer = ({ notebook, onClose }) => {
             startIcon={<ContentCopyIcon />}
             sx={{
               borderColor: 'rgba(102, 126, 234, 0.3)',
-              color: '#667eea',
+              color: '#0078D4',
               borderRadius: 2,
               textTransform: 'none',
               fontWeight: 600,
               '&:hover': {
-                borderColor: '#667eea',
+                borderColor: '#0078D4',
                 bgcolor: 'rgba(102, 126, 234, 0.04)',
               },
             }}
@@ -454,7 +454,7 @@ const NotebookViewer = ({ notebook, onClose }) => {
             onClick={onClose}
             variant="contained"
             sx={{
-              background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+              background: 'linear-gradient(135deg, #0078D4 0%, #005A9E 100%)',
               borderRadius: 2,
               textTransform: 'none',
               fontWeight: 600,

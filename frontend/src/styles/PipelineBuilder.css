@@ -8,7 +8,7 @@
 
 /* Sidebar Styles */
 .sidebar {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: linear-gradient(135deg, #0078D4 0%, #005A9E 100%);
   color: white;
   width: 280px;
   min-width: 280px;
@@ -209,7 +209,7 @@
 }
 
 .workspace-badge {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: linear-gradient(135deg, #0078D4 0%, #005A9E 100%);
   color: white;
   padding: 6px 12px;
   border-radius: 20px;
@@ -329,7 +329,7 @@
 
 /* Common Button Styles */
 .btn-primary {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: linear-gradient(135deg, #0078D4 0%, #005A9E 100%);
   color: white;
   border: none;
   padding: 10px 20px;
@@ -347,8 +347,8 @@
 
 .btn-secondary {
   background: white;
-  color: #667eea;
-  border: 1px solid #667eea;
+  color: #0078D4;
+  border: 1px solid #0078D4;
   padding: 10px 20px;
   border-radius: 8px;
   cursor: pointer;
@@ -358,12 +358,12 @@
 }
 
 .btn-secondary:hover {
-  background: #667eea;
+  background: #0078D4;
   color: white;
 }
 
 .btn-send {
-  background: #667eea;
+  background: #0078D4;
   color: white;
   padding: 12px 30px;
   border: none;
@@ -374,7 +374,7 @@
 }
 
 .btn-send:hover:not(:disabled) {
-  background: #5568d3;
+  background: #005A9E;
 }
 
 .btn-send:disabled {
@@ -433,9 +433,9 @@
 }
 
 .starter-question:hover {
-  background: #667eea;
+  background: #0078D4;
   color: white;
-  border-color: #667eea;
+  border-color: #0078D4;
 }
 
 .chat-messages {
@@ -468,7 +468,7 @@
 }
 
 .message.assistant .message-icon {
-  background: #667eea;
+  background: #0078D4;
   color: white;
 }
 
@@ -481,7 +481,7 @@
 }
 
 .message.user .message-content {
-  background: #667eea;
+  background: #0078D4;
   color: white;
 }
 
@@ -493,7 +493,7 @@
 .typing-indicator span {
   width: 8px;
   height: 8px;
-  background: #667eea;
+  background: #0078D4;
   border-radius: 50%;
   animation: bounce 1.4s infinite;
 }
@@ -534,7 +534,7 @@
 
 .chat-input:focus {
   outline: none;
-  border-color: #667eea;
+  border-color: #0078D4;
 }
 
 .chat-warning {
@@ -617,7 +617,7 @@
 
 .activity-type,
 .notebook-layer {
-  background: #667eea;
+  background: #0078D4;
   color: white;
   padding: 4px 12px;
   border-radius: 4px;
@@ -693,9 +693,9 @@
 }
 
 .tab.active {
-  background: #667eea;
+  background: #0078D4;
   color: white;
-  border-color: #667eea;
+  border-color: #0078D4;
 }
 
 .tab-content {

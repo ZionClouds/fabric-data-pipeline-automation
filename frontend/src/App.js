@@ -1,50 +1,50 @@
 import React from 'react';
 import { ThemeProvider, createTheme } from '@mui/material/styles';
 import { CssBaseline, Box, Typography } from '@mui/material';
+import { motion, AnimatePresence } from 'framer-motion';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { PipelineProvider } from './contexts/PipelineContext';
 import PipelineBuilderLayout from './components/PipelineBuilderLayout';
 import Login from './components/Login';
 import './styles/App.css';
 
-// Create Material UI theme
+// Microsoft Fabric-aligned MUI theme
 const theme = createTheme({
   palette: {
     primary: {
-      main: '#2563eb',
-      light: '#3b82f6',
-      dark: '#1d4ed8',
+      main: '#0078D4',
+      light: '#2B88D8',
+      dark: '#005A9E',
     },
     secondary: {
-      main: '#7c3aed',
-      light: '#8b5cf6',
-      dark: '#6d28d9',
+      main: '#8764B8',
+      light: '#9C7FCE',
+      dark: '#6B4F96',
     },
     background: {
-      default: '#f8fafc',
-      paper: '#ffffff',
+      default: '#F3F2F1',
+      paper: '#FFFFFF',
     },
+    text: {
+      primary: '#323130',
+      secondary: '#605E5C',
+    },
+    divider: '#EDEBE9',
+    error: { main: '#D13438' },
+    success: { main: '#107C10' },
+    warning: { main: '#FFB900' },
   },
   typography: {
-    fontFamily: '"Inter", "Segoe UI", "Roboto", sans-serif',
-    h1: {
-      fontWeight: 700,
-    },
-    h2: {
-      fontWeight: 700,
-    },
-    h3: {
-      fontWeight: 600,
-    },
-    h4: {
-      fontWeight: 600,
-    },
-    h5: {
-      fontWeight: 600,
-    },
+    fontFamily: '"Segoe UI", "Inter", "Roboto", -apple-system, BlinkMacSystemFont, sans-serif',
+    h1: { fontWeight: 700 },
+    h2: { fontWeight: 700 },
+    h3: { fontWeight: 600 },
+    h4: { fontWeight: 600 },
+    h5: { fontWeight: 600 },
+    h6: { fontWeight: 600 },
   },
   shape: {
-    borderRadius: 12,
+    borderRadius: 8,
   },
   components: {
     MuiButton: {
@@ -52,15 +52,29 @@ const theme = createTheme({
         root: {
           textTransform: 'none',
           fontWeight: 600,
-          borderRadius: 12,
+          borderRadius: 6,
         },
       },
     },
     MuiCard: {
       styleOverrides: {
         root: {
-          borderRadius: 16,
-          boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1)',
+          borderRadius: 8,
+          boxShadow: '0 2px 4px rgba(0,0,0,0.08), 0 0 2px rgba(0,0,0,0.06)',
+        },
+      },
+    },
+    MuiPaper: {
+      styleOverrides: {
+        root: {
+          borderRadius: 8,
+        },
+      },
+    },
+    MuiChip: {
+      styleOverrides: {
+        root: {
+          borderRadius: 4,
         },
       },
     },
@@ -72,81 +86,79 @@ function AppContent() {
 
   if (isLoading) {
     return (
-      <Box 
+      <Box
         sx={{
           minHeight: '100vh',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
-          p: 2
+          background: '#1B1B1F',
         }}
       >
-        <Box 
-          sx={{
-            textAlign: 'center',
-            background: 'rgba(255, 255, 255, 0.95)',
-            backdropFilter: 'blur(10px)',
-            p: 5,
-            borderRadius: 3,
-            boxShadow: '0 20px 60px rgba(0,0,0,0.2)',
-            border: '1px solid rgba(255,255,255,0.3)',
-            maxWidth: 400,
-            width: '100%'
-          }}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.5 }}
         >
-          <Box
-            sx={{
-              width: 80,
-              height: 80,
-              background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-              borderRadius: 3,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              mx: 'auto',
-              mb: 3,
-              animation: 'pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite',
-              '@keyframes pulse': {
-                '0%, 100%': {
-                  opacity: 1,
-                },
-                '50%': {
-                  opacity: 0.5,
-                },
-              },
-            }}
-          >
-            <Typography sx={{ fontSize: '2.5rem' }}>🚀</Typography>
+          <Box sx={{ textAlign: 'center' }}>
+            <motion.div
+              animate={{ opacity: [0.4, 1, 0.4] }}
+              transition={{ duration: 2, repeat: Infinity, ease: 'easeInOut' }}
+            >
+              <Box
+                sx={{
+                  width: 64,
+                  height: 64,
+                  background: '#0078D4',
+                  borderRadius: '16px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  mx: 'auto',
+                  mb: 3,
+                  boxShadow: '0 8px 32px rgba(0,120,212,0.3)',
+                }}
+              >
+                <Typography sx={{ fontSize: '1.8rem' }}>⚡</Typography>
+              </Box>
+            </motion.div>
+            <Typography variant="h6" sx={{ color: '#E8E6E3', fontWeight: 600, mb: 0.5 }}>
+              Pipeline Builder
+            </Typography>
+            <Typography variant="body2" sx={{ color: '#A19F9D' }}>
+              Preparing your workspace...
+            </Typography>
           </Box>
-          <Typography 
-            variant="h5" 
-            sx={{ 
-              color: 'text.primary',
-              fontWeight: 600,
-              mb: 1
-            }}
-          >
-            Loading Pipeline Builder...
-          </Typography>
-          <Typography 
-            variant="body1" 
-            sx={{ 
-              color: 'text.secondary',
-              fontWeight: 400
-            }}
-          >
-            Preparing your workspace
-          </Typography>
-        </Box>
+        </motion.div>
       </Box>
     );
   }
 
-  if (!isAuthenticated) {
-    return <Login />;
-  }
-
-  return <PipelineBuilderLayout />;
+  return (
+    <AnimatePresence mode="wait">
+      {!isAuthenticated ? (
+        <motion.div
+          key="login"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0, scale: 0.98 }}
+          transition={{ duration: 0.3 }}
+        >
+          <Login />
+        </motion.div>
+      ) : (
+        <motion.div
+          key="app"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ duration: 0.4, delay: 0.1 }}
+          style={{ height: '100vh' }}
+        >
+          <PipelineBuilderLayout />
+        </motion.div>
+      )}
+    </AnimatePresence>
+  );
 }
 
 function App() {

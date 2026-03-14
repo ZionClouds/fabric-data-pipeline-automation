@@ -187,6 +187,7 @@ class PipelineContext:
     workspace_id: str
     user_id: str
     lakehouse_name: Optional[str] = None
+    lakehouse_id: Optional[str] = None
     warehouse_name: Optional[str] = None
 
     # Pipeline state
@@ -233,6 +234,7 @@ class PipelineContext:
             "blob": "blob_storage", "azure blob": "blob_storage",
             "adls": "adls_gen2", "data lake": "adls_gen2",
             "sharepoint": "sharepoint",
+            "dataverse": "rest_api",
             "rest api": "rest_api", "api": "rest_api",
             "snowflake": "snowflake", "databricks": "databricks",
             "cosmos": "cosmosdb", "cosmosdb": "cosmosdb",
@@ -271,14 +273,19 @@ class PipelineContext:
                 extracted["use_case"] = use_case
                 break
 
-        # PII detection
-        pii_keywords = ["customer", "employee", "patient", "user data", "personal",
-                       "email", "phone", "address", "ssn", "credit card", "hipaa", "gdpr", "pii", "phi"]
-        for keyword in pii_keywords:
-            if keyword in message_lower:
-                self.business.pii_likely = True
-                extracted["pii_likely"] = True
-                break
+        # PII detection (with negation awareness)
+        # First check for explicit negations like "no pii", "no personal", "not pii"
+        negation_pii_patterns = ["no pii", "no phi", "not pii", "no personal", "without pii", "no sensitive"]
+        explicitly_no_pii = any(neg in message_lower for neg in negation_pii_patterns)
+
+        if not explicitly_no_pii:
+            pii_keywords = ["customer", "employee", "patient", "user data", "personal",
+                           "email", "phone", "address", "ssn", "credit card", "hipaa", "gdpr", "pii", "phi"]
+            for keyword in pii_keywords:
+                if keyword in message_lower:
+                    self.business.pii_likely = True
+                    extracted["pii_likely"] = True
+                    break
 
         # Frequency detection
         frequency_map = {
@@ -311,6 +318,22 @@ class PipelineContext:
         table_match = re.search(r'(\d+)\s*tables?', message_lower)
         if table_match:
             extracted["table_count"] = int(table_match.group(1))
+
+        # URL detection (for REST API, Dataverse, etc.)
+        url_match = re.search(r'https?://[^\s,]+', message)  # Use original case
+        if url_match:
+            url = url_match.group(0).rstrip('.,;)')
+            self.source.host = url
+            extracted["source_url"] = url
+
+        # Table/entity name detection (e.g., "table name: buyer", "table: users")
+        table_name_match = re.search(r'table\s*(?:name)?[:\s]+(\w+)', message_lower)
+        if table_name_match:
+            table_name = table_name_match.group(1)
+            if table_name not in ['name', 'is', 'the', 'a']:
+                if table_name not in self.source.objects:
+                    self.source.objects.append(table_name)
+                extracted["table_name"] = table_name
 
         self.updated_at = datetime.utcnow().isoformat()
         return extracted
@@ -449,6 +472,7 @@ class ContextManager:
         workspace_id: str,
         user_id: str,
         lakehouse_name: Optional[str] = None,
+        lakehouse_id: Optional[str] = None,
         warehouse_name: Optional[str] = None,
         fabric_service: Optional[Any] = None,
     ) -> PipelineContext:
@@ -460,6 +484,7 @@ class ContextManager:
                 workspace_id=workspace_id,
                 user_id=user_id,
                 lakehouse_name=lakehouse_name,
+                lakehouse_id=lakehouse_id,
                 warehouse_name=warehouse_name,
             )
             logger.info(f"Created new pipeline context for {key}")
@@ -470,6 +495,8 @@ class ContextManager:
         if lakehouse_name:
             ctx.lakehouse_name = lakehouse_name
             ctx.destination.lakehouse_name = lakehouse_name
+        if lakehouse_id:
+            ctx.lakehouse_id = lakehouse_id
         if warehouse_name:
             ctx.warehouse_name = warehouse_name
             ctx.destination.warehouse_name = warehouse_name

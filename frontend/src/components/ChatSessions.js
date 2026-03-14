@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { usePipeline } from '../contexts/PipelineContext';
 import { useAuth } from '../contexts/AuthContext';
 import { pipelineApi } from '../services/api';
+import { motion, AnimatePresence } from 'framer-motion';
 import {
   Box,
   Typography,
@@ -11,12 +12,9 @@ import {
   ListItemText,
   ListItemIcon,
   IconButton,
-  Paper,
   Divider,
-  Chip,
   Tooltip,
   CircularProgress,
-  Alert,
   Dialog,
   DialogActions,
   DialogContent,
@@ -28,13 +26,13 @@ import {
   Checkbox,
   Menu,
   MenuItem,
-  ListItemSecondaryAction,
   Collapse,
-  Snackbar
+  Snackbar,
+  Chip,
+  Alert
 } from '@mui/material';
 import {
   Chat as ChatIcon,
-  Add as AddIcon,
   Delete as DeleteIcon,
   AccessTime as AccessTimeIcon,
   CheckCircle as CheckCircleIcon,
@@ -50,6 +48,20 @@ import {
   ExpandLess as ExpandLessIcon
 } from '@mui/icons-material';
 
+// Dark sidebar color tokens
+const colors = {
+  bg: '#1B1B1F',
+  surfaceHover: 'rgba(255,255,255,0.05)',
+  surfaceActive: 'rgba(0,120,212,0.15)',
+  border: 'rgba(255,255,255,0.08)',
+  textPrimary: '#E8E6E3',
+  textSecondary: '#A19F9D',
+  textMuted: '#8A8886',
+  accent: '#0078D4',
+  inputBg: '#2D2D30',
+  inputBorder: '#3E3E42',
+};
+
 const ChatSessions = () => {
   const {
     conversationId,
@@ -57,7 +69,8 @@ const ChatSessions = () => {
     setChatMessages,
     addChatMessage,
     clearChat,
-    selectedWorkspace
+    selectedWorkspace,
+    refreshConversations
   } = usePipeline();
   const { user } = useAuth();
   const [conversations, setConversations] = useState([]);
@@ -87,55 +100,29 @@ const ChatSessions = () => {
 
   useEffect(() => {
     loadConversations();
-  }, [user, selectedWorkspace]);
+  }, [user, selectedWorkspace, refreshConversations]);
 
   const loadConversations = async () => {
     if (!user) return;
-
     setIsLoading(true);
     setError(null);
-
     try {
-      // Build params - filter by workspace if selected
-      const baseParams = {
-        user_email: user.email,
-        limit: 50
-      };
+      const baseParams = { user_email: user.email, limit: 50 };
+      if (selectedWorkspace?.id) baseParams.workspace_id = selectedWorkspace.id;
 
-      // Add workspace filter if a workspace is selected
-      if (selectedWorkspace?.id) {
-        baseParams.workspace_id = selectedWorkspace.id;
-      }
-
-      // Load active conversations
-      const activeResponse = await pipelineApi.getConversations({
-        ...baseParams,
-        status: 'active'
-      });
-
-      // Load completed conversations (previous sessions)
-      const completedResponse = await pipelineApi.getConversations({
-        ...baseParams,
-        status: 'completed'
-      });
-
-      // Combine active and completed conversations, sorted by updated_at
+      const activeResponse = await pipelineApi.getConversations({ ...baseParams, status: 'active' });
+      const completedResponse = await pipelineApi.getConversations({ ...baseParams, status: 'completed' });
       const allConversations = [
         ...(activeResponse.data || []),
         ...(completedResponse.data || [])
       ].sort((a, b) => new Date(b.updated_at) - new Date(a.updated_at));
-
       setConversations(allConversations);
 
-      // Load archived conversations
-      const archivedResponse = await pipelineApi.getConversations({
-        ...baseParams,
-        status: 'archived'
-      });
+      const archivedResponse = await pipelineApi.getConversations({ ...baseParams, status: 'archived' });
       setArchivedConversations(archivedResponse.data || []);
     } catch (err) {
       console.error('Failed to load conversations:', err);
-      setError('Failed to load chat sessions. Please try again.');
+      setError('Failed to load chats');
     } finally {
       setIsLoading(false);
     }
@@ -149,7 +136,6 @@ const ChatSessions = () => {
         console.error('Failed to update conversation status:', err);
       }
     }
-
     clearChat();
     setConversationId(null);
     localStorage.removeItem('conversationId');
@@ -162,72 +148,40 @@ const ChatSessions = () => {
       toggleSelection(conversation.conversation_id);
       return;
     }
-
     if (conversation.conversation_id === conversationId) return;
-
     try {
       const response = await pipelineApi.getConversation(conversation.conversation_id);
       const data = response.data;
-
       clearChat();
       setConversationId(data.conversation_id);
       localStorage.setItem('conversationId', data.conversation_id);
-
       if (data.messages && data.messages.length > 0) {
-        data.messages.forEach(msg => {
-          addChatMessage(msg.role, msg.content);
-        });
+        data.messages.forEach(msg => addChatMessage(msg.role, msg.content));
       }
     } catch (err) {
       console.error('Failed to load conversation:', err);
-      setError('Failed to load conversation. Please try again.');
+      setError('Failed to load conversation');
     }
   };
 
-  // Search functionality
   const handleSearch = async () => {
-    if (!searchQuery.trim()) {
-      setSearchResults(null);
-      return;
-    }
-
+    if (!searchQuery.trim()) { setSearchResults(null); return; }
     setIsSearching(true);
     try {
       const response = await pipelineApi.searchConversations(searchQuery, user.email, 20);
       setSearchResults(response.data);
     } catch (err) {
       console.error('Search failed:', err);
-      setError('Search failed. Please try again.');
     } finally {
       setIsSearching(false);
     }
   };
 
-  const clearSearch = () => {
-    setSearchQuery('');
-    setSearchResults(null);
-  };
+  const clearSearch = () => { setSearchQuery(''); setSearchResults(null); };
+  const toggleSelection = (id) => setSelectedIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
+  const selectAll = () => setSelectedIds(conversations.map(c => c.conversation_id));
+  const clearSelection = () => { setSelectedIds([]); setSelectionMode(false); };
 
-  // Selection functions
-  const toggleSelection = (id) => {
-    setSelectedIds(prev =>
-      prev.includes(id)
-        ? prev.filter(x => x !== id)
-        : [...prev, id]
-    );
-  };
-
-  const selectAll = () => {
-    const allIds = conversations.map(c => c.conversation_id);
-    setSelectedIds(allIds);
-  };
-
-  const clearSelection = () => {
-    setSelectedIds([]);
-    setSelectionMode(false);
-  };
-
-  // Delete functions
   const handleDeleteClick = (e, conversation) => {
     e.stopPropagation();
     setConversationToDelete(conversation);
@@ -237,73 +191,54 @@ const ChatSessions = () => {
 
   const handleDeleteConfirm = async () => {
     if (!conversationToDelete) return;
-
     try {
       await pipelineApi.deleteConversation(conversationToDelete.conversation_id);
-
-      if (conversationToDelete.conversation_id === conversationId) {
-        handleNewChat();
-      }
-
+      if (conversationToDelete.conversation_id === conversationId) handleNewChat();
       loadConversations();
       setDeleteDialogOpen(false);
       setConversationToDelete(null);
-      setSuccessMessage('Conversation deleted successfully');
+      setSuccessMessage('Deleted');
     } catch (err) {
-      console.error('Failed to delete conversation:', err);
-      setError('Failed to delete conversation. Please try again.');
+      setError('Failed to delete');
       setDeleteDialogOpen(false);
     }
   };
 
-  // Bulk delete
   const handleBulkDelete = async () => {
     if (selectedIds.length === 0) return;
-
     try {
       await pipelineApi.bulkDeleteConversations(selectedIds);
-
-      if (selectedIds.includes(conversationId)) {
-        handleNewChat();
-      }
-
+      if (selectedIds.includes(conversationId)) handleNewChat();
       loadConversations();
       setBulkDeleteDialogOpen(false);
       clearSelection();
-      setSuccessMessage(`Deleted ${selectedIds.length} conversations`);
+      setSuccessMessage(`Deleted ${selectedIds.length} chats`);
     } catch (err) {
-      console.error('Bulk delete failed:', err);
-      setError('Failed to delete conversations. Please try again.');
+      setError('Failed to delete');
       setBulkDeleteDialogOpen(false);
     }
   };
 
-  // Clear all
   const handleClearAll = async () => {
     try {
       await pipelineApi.deleteAllUserConversations(user.email);
       handleNewChat();
       loadConversations();
       setClearAllDialogOpen(false);
-      setSuccessMessage('All conversations deleted');
+      setSuccessMessage('All chats deleted');
     } catch (err) {
-      console.error('Clear all failed:', err);
-      setError('Failed to delete all conversations. Please try again.');
+      setError('Failed to delete all');
       setClearAllDialogOpen(false);
     }
   };
 
-  // Archive/Restore
   const handleArchive = async (conversation) => {
     try {
       await pipelineApi.archiveConversation(conversation.conversation_id);
       loadConversations();
       setMenuAnchor(null);
-      setSuccessMessage('Conversation archived');
-    } catch (err) {
-      console.error('Archive failed:', err);
-      setError('Failed to archive conversation');
-    }
+      setSuccessMessage('Archived');
+    } catch (err) { setError('Failed to archive'); }
   };
 
   const handleRestore = async (conversation) => {
@@ -311,14 +246,10 @@ const ChatSessions = () => {
       await pipelineApi.restoreConversation(conversation.conversation_id);
       loadConversations();
       setMenuAnchor(null);
-      setSuccessMessage('Conversation restored');
-    } catch (err) {
-      console.error('Restore failed:', err);
-      setError('Failed to restore conversation');
-    }
+      setSuccessMessage('Restored');
+    } catch (err) { setError('Failed to restore'); }
   };
 
-  // Rename
   const handleRenameClick = (conversation) => {
     setConversationToRename(conversation);
     setNewTitle(conversation.title || '');
@@ -328,281 +259,210 @@ const ChatSessions = () => {
 
   const handleRenameConfirm = async () => {
     if (!conversationToRename || !newTitle.trim()) return;
-
     try {
       await pipelineApi.updateConversation(conversationToRename.conversation_id, newTitle.trim(), null);
       loadConversations();
       setRenameDialogOpen(false);
       setConversationToRename(null);
       setNewTitle('');
-      setSuccessMessage('Conversation renamed');
+      setSuccessMessage('Renamed');
     } catch (err) {
-      console.error('Rename failed:', err);
-      setError('Failed to rename conversation');
+      setError('Failed to rename');
       setRenameDialogOpen(false);
     }
   };
 
-  // Menu handlers
-  const handleMenuOpen = (e, conversation) => {
-    e.stopPropagation();
-    setMenuAnchor(e.currentTarget);
-    setMenuConversation(conversation);
-  };
-
-  const handleMenuClose = () => {
-    setMenuAnchor(null);
-    setMenuConversation(null);
-  };
+  const handleMenuOpen = (e, conversation) => { e.stopPropagation(); setMenuAnchor(e.currentTarget); setMenuConversation(conversation); };
+  const handleMenuClose = () => { setMenuAnchor(null); setMenuConversation(null); };
 
   const formatDate = (dateString) => {
     if (!dateString) return '';
     const date = new Date(dateString);
     const now = new Date();
-    const diffInMs = now - date;
-    const diffInMinutes = Math.floor(diffInMs / (1000 * 60));
-    const diffInHours = Math.floor(diffInMs / (1000 * 60 * 60));
-    const diffInDays = Math.floor(diffInMs / (1000 * 60 * 60 * 24));
-
-    if (diffInMinutes < 1) return 'Just now';
-    if (diffInMinutes < 60) return `${diffInMinutes}m ago`;
-    if (diffInHours < 24) return `${diffInHours}h ago`;
-    if (diffInDays === 1) return 'Yesterday';
-    if (diffInDays < 7) return `${diffInDays}d ago`;
-
+    const diffMs = now - date;
+    const diffMin = Math.floor(diffMs / 60000);
+    const diffHr = Math.floor(diffMs / 3600000);
+    const diffDay = Math.floor(diffMs / 86400000);
+    if (diffMin < 1) return 'Just now';
+    if (diffMin < 60) return `${diffMin}m ago`;
+    if (diffHr < 24) return `${diffHr}h ago`;
+    if (diffDay === 1) return 'Yesterday';
+    if (diffDay < 7) return `${diffDay}d ago`;
     return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
   };
 
   const displayConversations = searchResults?.conversations || conversations;
 
   return (
-    <Paper
-      elevation={2}
-      sx={{
-        height: '100%',
-        display: 'flex',
-        flexDirection: 'column',
-        borderRadius: 2,
-        overflow: 'hidden'
-      }}
-    >
-      {/* Header */}
-      <Box
-        sx={{
-          p: 2,
-          background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-          color: 'white',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between'
-        }}
-      >
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-          <ChatIcon />
-          <Typography variant="h6" sx={{ fontWeight: 600 }}>
-            Chat Sessions
-          </Typography>
-          {conversations.length > 0 && (
-            <Chip
-              label={conversations.length}
-              size="small"
-              sx={{ bgcolor: 'rgba(255,255,255,0.3)', color: 'white', height: 20 }}
-            />
-          )}
-        </Box>
-        <Box sx={{ display: 'flex', gap: 0.5 }}>
-          {selectionMode ? (
-            <>
-              <Tooltip title="Select All">
-                <IconButton size="small" onClick={selectAll} sx={{ color: 'white' }}>
-                  <SelectAllIcon fontSize="small" />
-                </IconButton>
-              </Tooltip>
-              <Tooltip title="Delete Selected">
-                <IconButton
-                  size="small"
-                  onClick={() => setBulkDeleteDialogOpen(true)}
-                  disabled={selectedIds.length === 0}
-                  sx={{ color: 'white' }}
-                >
-                  <DeleteSweepIcon fontSize="small" />
-                </IconButton>
-              </Tooltip>
-              <Tooltip title="Cancel">
-                <IconButton size="small" onClick={clearSelection} sx={{ color: 'white' }}>
-                  <ClearIcon fontSize="small" />
-                </IconButton>
-              </Tooltip>
-            </>
-          ) : (
-            <>
-              <Tooltip title="Select Multiple">
-                <IconButton
-                  size="small"
-                  onClick={() => setSelectionMode(true)}
-                  sx={{ color: 'white', opacity: 0.8 }}
-                >
-                  <Checkbox sx={{ color: 'white', p: 0 }} size="small" />
-                </IconButton>
-              </Tooltip>
-              <Tooltip title="New Chat">
-                <IconButton
-                  onClick={handleNewChat}
-                  size="small"
-                  sx={{
-                    color: 'white',
-                    bgcolor: 'rgba(255,255,255,0.2)',
-                    '&:hover': { bgcolor: 'rgba(255,255,255,0.3)' }
-                  }}
-                >
-                  <AddIcon />
-                </IconButton>
-              </Tooltip>
-            </>
-          )}
-        </Box>
-      </Box>
-
+    <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
       {/* Search Bar */}
-      <Box sx={{ p: 1.5, bgcolor: 'grey.50' }}>
+      <Box sx={{ px: 2, py: 1 }}>
         <TextField
           size="small"
           fullWidth
-          placeholder="Search conversations..."
+          placeholder="Search chats..."
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
           onKeyPress={(e) => e.key === 'Enter' && handleSearch()}
           InputProps={{
             startAdornment: (
               <InputAdornment position="start">
-                <SearchIcon fontSize="small" color="action" />
+                <SearchIcon sx={{ fontSize: 16, color: colors.textMuted }} />
               </InputAdornment>
             ),
             endAdornment: searchQuery && (
               <InputAdornment position="end">
-                <IconButton size="small" onClick={clearSearch}>
-                  <ClearIcon fontSize="small" />
+                <IconButton size="small" onClick={clearSearch} sx={{ color: colors.textMuted }}>
+                  <ClearIcon sx={{ fontSize: 14 }} />
                 </IconButton>
               </InputAdornment>
             ),
+            sx: {
+              bgcolor: colors.inputBg,
+              borderRadius: '6px',
+              color: colors.textPrimary,
+              fontSize: '12px',
+              '& fieldset': { borderColor: colors.inputBorder },
+              '&:hover fieldset': { borderColor: 'rgba(255,255,255,0.2) !important' },
+              '&.Mui-focused fieldset': { borderColor: `${colors.accent} !important` },
+              '& input::placeholder': { color: colors.textMuted, opacity: 1 },
+            },
           }}
-          sx={{ bgcolor: 'white', borderRadius: 1 }}
         />
         {searchResults && (
-          <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, display: 'block' }}>
-            Found {searchResults.count} results for "{searchResults.query}"
+          <Typography sx={{ mt: 0.5, fontSize: '11px', color: colors.textMuted }}>
+            {searchResults.count} results
           </Typography>
         )}
       </Box>
 
-      <Divider />
-
-      {/* Error/Success Alerts */}
-      {error && (
-        <Alert severity="error" onClose={() => setError(null)} sx={{ m: 1 }}>
-          {error}
-        </Alert>
+      {/* Selection Mode Bar */}
+      {selectionMode && (
+        <Box sx={{ px: 2, py: 0.5, display: 'flex', alignItems: 'center', gap: 0.5 }}>
+          <Tooltip title="Select All">
+            <IconButton size="small" onClick={selectAll} sx={{ color: colors.textSecondary }}>
+              <SelectAllIcon sx={{ fontSize: 16 }} />
+            </IconButton>
+          </Tooltip>
+          <Tooltip title="Delete Selected">
+            <IconButton
+              size="small"
+              onClick={() => setBulkDeleteDialogOpen(true)}
+              disabled={selectedIds.length === 0}
+              sx={{ color: '#D13438' }}
+            >
+              <DeleteSweepIcon sx={{ fontSize: 16 }} />
+            </IconButton>
+          </Tooltip>
+          <Tooltip title="Cancel">
+            <IconButton size="small" onClick={clearSelection} sx={{ color: colors.textSecondary }}>
+              <ClearIcon sx={{ fontSize: 16 }} />
+            </IconButton>
+          </Tooltip>
+          <Typography sx={{ ml: 'auto', fontSize: '11px', color: colors.textMuted }}>
+            {selectedIds.length} selected
+          </Typography>
+        </Box>
       )}
 
       {/* Sessions List */}
-      <Box sx={{ flex: 1, overflow: 'auto', p: 1 }}>
+      <Box sx={{ flex: 1, overflow: 'auto', px: 1, py: 0.5,
+        '&::-webkit-scrollbar': { width: '4px' },
+        '&::-webkit-scrollbar-track': { background: 'transparent' },
+        '&::-webkit-scrollbar-thumb': { background: 'rgba(255,255,255,0.15)', borderRadius: '2px' },
+      }}>
         {isLoading || isSearching ? (
           <Box sx={{ display: 'flex', justifyContent: 'center', p: 3 }}>
-            <CircularProgress size={40} />
+            <CircularProgress size={24} sx={{ color: colors.accent }} />
           </Box>
         ) : displayConversations.length === 0 ? (
           <Box sx={{ p: 3, textAlign: 'center' }}>
-            <Typography variant="body2" color="text.secondary">
-              {searchResults ? 'No conversations found.' : 'No chat sessions yet. Start a new conversation!'}
+            <Typography sx={{ fontSize: '12px', color: colors.textMuted }}>
+              {searchResults ? 'No results found' : 'No chats yet'}
             </Typography>
           </Box>
         ) : (
           <List sx={{ p: 0 }}>
-            {displayConversations.map((conversation) => (
-              <ListItem
+            {displayConversations.map((conversation, index) => (
+              <motion.div
                 key={conversation.conversation_id}
-                disablePadding
-                secondaryAction={
-                  !selectionMode && (
-                    <IconButton
-                      edge="end"
-                      size="small"
-                      onClick={(e) => handleMenuOpen(e, conversation)}
-                      sx={{ opacity: 0.6, '&:hover': { opacity: 1 } }}
-                    >
-                      <MoreVertIcon fontSize="small" />
-                    </IconButton>
-                  )
-                }
+                initial={{ opacity: 0, x: -8 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ delay: index * 0.03, duration: 0.2 }}
               >
-                <ListItemButton
-                  selected={conversation.conversation_id === conversationId}
-                  onClick={() => handleSelectConversation(conversation)}
-                  sx={{
-                    borderRadius: 1,
-                    mb: 0.5,
-                    '&.Mui-selected': {
-                      bgcolor: 'primary.light',
-                      '&:hover': { bgcolor: 'primary.light' }
-                    }
-                  }}
-                >
-                  {selectionMode && (
-                    <Checkbox
-                      checked={selectedIds.includes(conversation.conversation_id)}
-                      onClick={(e) => e.stopPropagation()}
-                      onChange={() => toggleSelection(conversation.conversation_id)}
-                      size="small"
-                      sx={{ mr: 1 }}
-                    />
-                  )}
-                  <ListItemIcon sx={{ minWidth: 40 }}>
-                    {conversation.conversation_id === conversationId ? (
-                      <CheckCircleIcon color="primary" fontSize="small" />
-                    ) : (
-                      <ChatIcon color="action" fontSize="small" />
+                <ListItem disablePadding sx={{ mb: 0.25 }}>
+                  <ListItemButton
+                    selected={conversation.conversation_id === conversationId}
+                    onClick={() => handleSelectConversation(conversation)}
+                    sx={{
+                      borderRadius: '6px',
+                      py: 1,
+                      px: 1.5,
+                      color: colors.textPrimary,
+                      '&:hover': { bgcolor: colors.surfaceHover },
+                      '&.Mui-selected': {
+                        bgcolor: colors.surfaceActive,
+                        borderLeft: `2px solid ${colors.accent}`,
+                        '&:hover': { bgcolor: colors.surfaceActive },
+                      },
+                    }}
+                  >
+                    {selectionMode && (
+                      <Checkbox
+                        checked={selectedIds.includes(conversation.conversation_id)}
+                        onClick={(e) => e.stopPropagation()}
+                        onChange={() => toggleSelection(conversation.conversation_id)}
+                        size="small"
+                        sx={{ mr: 0.5, p: 0.25, color: colors.textMuted, '&.Mui-checked': { color: colors.accent } }}
+                      />
                     )}
-                  </ListItemIcon>
-                  <ListItemText
-                    primary={
-                      <Typography
-                        variant="body2"
+                    <ListItemText
+                      primary={
+                        <Typography
+                          sx={{
+                            fontSize: '13px',
+                            fontWeight: conversation.conversation_id === conversationId ? 600 : 400,
+                            color: colors.textPrimary,
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            whiteSpace: 'nowrap',
+                            lineHeight: 1.3,
+                          }}
+                        >
+                          {conversation.title || 'New Conversation'}
+                        </Typography>
+                      }
+                      secondary={
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mt: 0.25 }}>
+                          <Typography sx={{ fontSize: '11px', color: colors.textMuted }}>
+                            {formatDate(conversation.updated_at)}
+                          </Typography>
+                          {conversation.message_count > 0 && (
+                            <Typography sx={{ fontSize: '11px', color: colors.textMuted }}>
+                              · {conversation.message_count} msg
+                            </Typography>
+                          )}
+                        </Box>
+                      }
+                    />
+                    {!selectionMode && (
+                      <IconButton
+                        size="small"
+                        onClick={(e) => handleMenuOpen(e, conversation)}
                         sx={{
-                          fontWeight: conversation.conversation_id === conversationId ? 600 : 400,
-                          overflow: 'hidden',
-                          textOverflow: 'ellipsis',
-                          whiteSpace: 'nowrap'
+                          color: colors.textMuted,
+                          opacity: 0,
+                          '.MuiListItemButton-root:hover &': { opacity: 1 },
+                          ml: 0.5,
+                          p: 0.25,
                         }}
                       >
-                        {conversation.title || 'New Conversation'}
-                      </Typography>
-                    }
-                    secondary={
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 0.5 }}>
-                        <AccessTimeIcon sx={{ fontSize: 12 }} />
-                        <Typography variant="caption" color="text.secondary">
-                          {formatDate(conversation.updated_at)}
-                        </Typography>
-                        {conversation.message_count > 0 && (
-                          <Chip
-                            label={`${conversation.message_count} msg`}
-                            size="small"
-                            sx={{ height: 18, fontSize: '0.7rem' }}
-                          />
-                        )}
-                        {conversation.match_type === 'message' && (
-                          <Chip
-                            label="Match"
-                            size="small"
-                            color="primary"
-                            sx={{ height: 18, fontSize: '0.7rem' }}
-                          />
-                        )}
-                      </Box>
-                    }
-                  />
-                </ListItemButton>
-              </ListItem>
+                        <MoreVertIcon sx={{ fontSize: 16 }} />
+                      </IconButton>
+                    )}
+                  </ListItemButton>
+                </ListItem>
+              </motion.div>
             ))}
           </List>
         )}
@@ -610,51 +470,49 @@ const ChatSessions = () => {
         {/* Archived Section */}
         {archivedConversations.length > 0 && !searchResults && (
           <>
-            <Divider sx={{ my: 1 }} />
-            <ListItemButton onClick={() => setShowArchived(!showArchived)}>
-              <ListItemIcon sx={{ minWidth: 40 }}>
-                <ArchiveIcon fontSize="small" />
+            <Divider sx={{ my: 1, borderColor: colors.border }} />
+            <ListItemButton
+              onClick={() => setShowArchived(!showArchived)}
+              sx={{ borderRadius: '6px', py: 0.75, color: colors.textMuted }}
+            >
+              <ListItemIcon sx={{ minWidth: 28 }}>
+                <ArchiveIcon sx={{ fontSize: 14, color: colors.textMuted }} />
               </ListItemIcon>
               <ListItemText
                 primary={
-                  <Typography variant="body2" color="text.secondary">
+                  <Typography sx={{ fontSize: '12px', color: colors.textMuted }}>
                     Archived ({archivedConversations.length})
                   </Typography>
                 }
               />
-              {showArchived ? <ExpandLessIcon /> : <ExpandMoreIcon />}
+              {showArchived ? <ExpandLessIcon sx={{ fontSize: 16 }} /> : <ExpandMoreIcon sx={{ fontSize: 16 }} />}
             </ListItemButton>
             <Collapse in={showArchived}>
-              <List sx={{ pl: 2 }}>
+              <List sx={{ pl: 1 }}>
                 {archivedConversations.map((conversation) => (
-                  <ListItem
-                    key={conversation.conversation_id}
-                    disablePadding
-                    secondaryAction={
-                      <Tooltip title="Restore">
-                        <IconButton
-                          size="small"
-                          onClick={() => handleRestore(conversation)}
-                        >
-                          <UnarchiveIcon fontSize="small" />
-                        </IconButton>
-                      </Tooltip>
-                    }
-                  >
+                  <ListItem key={conversation.conversation_id} disablePadding>
                     <ListItemButton
                       onClick={() => handleSelectConversation(conversation)}
-                      sx={{ borderRadius: 1, opacity: 0.7 }}
+                      sx={{
+                        borderRadius: '6px',
+                        py: 0.75,
+                        px: 1.5,
+                        opacity: 0.6,
+                        '&:hover': { bgcolor: colors.surfaceHover, opacity: 0.8 },
+                      }}
                     >
-                      <ListItemIcon sx={{ minWidth: 40 }}>
-                        <ChatIcon color="disabled" fontSize="small" />
-                      </ListItemIcon>
                       <ListItemText
                         primary={
-                          <Typography variant="body2" color="text.secondary">
-                            {conversation.title || 'Archived Conversation'}
+                          <Typography sx={{ fontSize: '12px', color: colors.textSecondary }}>
+                            {conversation.title || 'Archived'}
                           </Typography>
                         }
                       />
+                      <Tooltip title="Restore">
+                        <IconButton size="small" onClick={(e) => { e.stopPropagation(); handleRestore(conversation); }} sx={{ color: colors.textMuted, p: 0.25 }}>
+                          <UnarchiveIcon sx={{ fontSize: 14 }} />
+                        </IconButton>
+                      </Tooltip>
                     </ListItemButton>
                   </ListItem>
                 ))}
@@ -664,94 +522,79 @@ const ChatSessions = () => {
         )}
       </Box>
 
-      {/* Footer with Clear All */}
-      {conversations.length > 0 && (
-        <>
-          <Divider />
-          <Box sx={{ p: 1, display: 'flex', justifyContent: 'center' }}>
-            <Button
-              size="small"
-              color="error"
-              startIcon={<DeleteSweepIcon />}
-              onClick={() => setClearAllDialogOpen(true)}
-              sx={{ fontSize: '0.75rem' }}
-            >
-              Clear All Conversations
-            </Button>
-          </Box>
-        </>
+      {/* Footer Actions */}
+      {conversations.length > 3 && !selectionMode && (
+        <Box sx={{ px: 2, py: 1, borderTop: `1px solid ${colors.border}`, display: 'flex', gap: 0.5 }}>
+          <Button
+            size="small"
+            onClick={() => setSelectionMode(true)}
+            sx={{ color: colors.textMuted, fontSize: '11px', textTransform: 'none', minWidth: 0, px: 1 }}
+          >
+            Select
+          </Button>
+          <Button
+            size="small"
+            onClick={() => setClearAllDialogOpen(true)}
+            sx={{ color: '#D13438', fontSize: '11px', textTransform: 'none', minWidth: 0, px: 1, ml: 'auto' }}
+          >
+            Clear all
+          </Button>
+        </Box>
       )}
 
       {/* Context Menu */}
-      <Menu
-        anchorEl={menuAnchor}
-        open={Boolean(menuAnchor)}
-        onClose={handleMenuClose}
+      <Menu anchorEl={menuAnchor} open={Boolean(menuAnchor)} onClose={handleMenuClose}
+        PaperProps={{ sx: { bgcolor: '#2D2D30', color: colors.textPrimary, minWidth: 150, boxShadow: '0 4px 16px rgba(0,0,0,0.4)' } }}
       >
-        <MenuItem onClick={() => handleRenameClick(menuConversation)}>
-          <ListItemIcon><EditIcon fontSize="small" /></ListItemIcon>
+        <MenuItem onClick={() => handleRenameClick(menuConversation)} sx={{ fontSize: '13px', '&:hover': { bgcolor: colors.surfaceHover } }}>
+          <ListItemIcon><EditIcon sx={{ fontSize: 16, color: colors.textSecondary }} /></ListItemIcon>
           Rename
         </MenuItem>
-        <MenuItem onClick={() => handleArchive(menuConversation)}>
-          <ListItemIcon><ArchiveIcon fontSize="small" /></ListItemIcon>
+        <MenuItem onClick={() => handleArchive(menuConversation)} sx={{ fontSize: '13px', '&:hover': { bgcolor: colors.surfaceHover } }}>
+          <ListItemIcon><ArchiveIcon sx={{ fontSize: 16, color: colors.textSecondary }} /></ListItemIcon>
           Archive
         </MenuItem>
-        <Divider />
-        <MenuItem onClick={(e) => handleDeleteClick(e, menuConversation)} sx={{ color: 'error.main' }}>
-          <ListItemIcon><DeleteIcon fontSize="small" color="error" /></ListItemIcon>
+        <Divider sx={{ borderColor: colors.border }} />
+        <MenuItem onClick={(e) => handleDeleteClick(e, menuConversation)} sx={{ fontSize: '13px', color: '#D13438', '&:hover': { bgcolor: 'rgba(209,52,56,0.1)' } }}>
+          <ListItemIcon><DeleteIcon sx={{ fontSize: 16, color: '#D13438' }} /></ListItemIcon>
           Delete
         </MenuItem>
       </Menu>
 
-      {/* Delete Confirmation Dialog */}
+      {/* Dialogs (keep light theme for modals) */}
       <Dialog open={deleteDialogOpen} onClose={() => setDeleteDialogOpen(false)}>
-        <DialogTitle>Delete Chat Session?</DialogTitle>
+        <DialogTitle>Delete Chat?</DialogTitle>
         <DialogContent>
-          <DialogContentText>
-            Are you sure you want to delete this chat session? This will permanently remove the conversation and all associated pipeline configurations. This action cannot be undone.
-          </DialogContentText>
+          <DialogContentText>This will permanently remove this conversation and all associated data.</DialogContentText>
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setDeleteDialogOpen(false)}>Cancel</Button>
-          <Button onClick={handleDeleteConfirm} color="error" variant="contained">
-            Delete
-          </Button>
+          <Button onClick={handleDeleteConfirm} color="error" variant="contained">Delete</Button>
         </DialogActions>
       </Dialog>
 
-      {/* Bulk Delete Dialog */}
       <Dialog open={bulkDeleteDialogOpen} onClose={() => setBulkDeleteDialogOpen(false)}>
-        <DialogTitle>Delete {selectedIds.length} Conversations?</DialogTitle>
+        <DialogTitle>Delete {selectedIds.length} Chats?</DialogTitle>
         <DialogContent>
-          <DialogContentText>
-            Are you sure you want to delete {selectedIds.length} selected conversations? This action cannot be undone.
-          </DialogContentText>
+          <DialogContentText>This action cannot be undone.</DialogContentText>
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setBulkDeleteDialogOpen(false)}>Cancel</Button>
-          <Button onClick={handleBulkDelete} color="error" variant="contained">
-            Delete All Selected
-          </Button>
+          <Button onClick={handleBulkDelete} color="error" variant="contained">Delete All</Button>
         </DialogActions>
       </Dialog>
 
-      {/* Clear All Dialog */}
       <Dialog open={clearAllDialogOpen} onClose={() => setClearAllDialogOpen(false)}>
         <DialogTitle>Delete All Conversations?</DialogTitle>
         <DialogContent>
-          <DialogContentText>
-            This will permanently delete ALL your conversations and associated data. This action cannot be undone!
-          </DialogContentText>
+          <DialogContentText>This will permanently delete ALL your conversations.</DialogContentText>
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setClearAllDialogOpen(false)}>Cancel</Button>
-          <Button onClick={handleClearAll} color="error" variant="contained">
-            Delete Everything
-          </Button>
+          <Button onClick={handleClearAll} color="error" variant="contained">Delete Everything</Button>
         </DialogActions>
       </Dialog>
 
-      {/* Rename Dialog */}
       <Dialog open={renameDialogOpen} onClose={() => setRenameDialogOpen(false)}>
         <DialogTitle>Rename Conversation</DialogTitle>
         <DialogContent>
@@ -767,20 +610,24 @@ const ChatSessions = () => {
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setRenameDialogOpen(false)}>Cancel</Button>
-          <Button onClick={handleRenameConfirm} variant="contained" disabled={!newTitle.trim()}>
-            Rename
-          </Button>
+          <Button onClick={handleRenameConfirm} variant="contained" disabled={!newTitle.trim()}>Rename</Button>
         </DialogActions>
       </Dialog>
 
-      {/* Success Snackbar */}
       <Snackbar
         open={Boolean(successMessage)}
-        autoHideDuration={3000}
+        autoHideDuration={2000}
         onClose={() => setSuccessMessage(null)}
         message={successMessage}
       />
-    </Paper>
+      <Snackbar
+        open={Boolean(error)}
+        autoHideDuration={3000}
+        onClose={() => setError(null)}
+      >
+        <Alert severity="error" onClose={() => setError(null)} sx={{ fontSize: '12px' }}>{error}</Alert>
+      </Snackbar>
+    </Box>
   );
 };
 

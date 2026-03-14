@@ -13,15 +13,26 @@ DATABASE_NAME = "fabrics"
 DATABASE_USER = "fabrics"
 DATABASE_PASSWORD = "iLoveFab@143"
 
-# SQLAlchemy Database URL - Azure SQL Server
+# SQLAlchemy Database URL
+import os
 from urllib.parse import quote_plus
-encoded_password = quote_plus(DATABASE_PASSWORD)
-DATABASE_URL = (
-    f"mssql+pyodbc://{DATABASE_USER}:{encoded_password}"
-    f"@{DATABASE_SERVER}/{DATABASE_NAME}"
-    f"?driver=ODBC+Driver+18+for+SQL+Server"
-    f"&Encrypt=yes&TrustServerCertificate=yes&Connection+Timeout=30"
-)
+
+# Use SQLite for local development, Azure SQL for production
+USE_LOCAL_DB = os.environ.get("USE_LOCAL_DB", "true").lower() == "true"
+
+if USE_LOCAL_DB:
+    # Local SQLite database — no network dependency
+    _db_dir = os.path.dirname(os.path.abspath(__file__))
+    DATABASE_URL = f"sqlite:///{os.path.join(_db_dir, 'fabric_pipeline.db')}"
+else:
+    # Azure SQL Server (requires firewall rule for your IP)
+    encoded_password = quote_plus(DATABASE_PASSWORD)
+    DATABASE_URL = (
+        f"mssql+pyodbc://{DATABASE_USER}:{encoded_password}"
+        f"@{DATABASE_SERVER}/{DATABASE_NAME}"
+        f"?driver=ODBC+Driver+18+for+SQL+Server"
+        f"&Encrypt=yes&TrustServerCertificate=yes&Connection+Timeout=30"
+    )
 
 # ============================================================================
 # GCP VERTEX AI - CLAUDE CONFIGURATION (PRIMARY LLM)
@@ -32,36 +43,13 @@ CLAUDE_MODEL = "claude-opus-4-6"
 CLAUDE_MAX_TOKENS = 16384
 CLAUDE_TEMPERATURE = 0.7
 
-# Legacy Anthropic API (not used - using Vertex AI instead)
-ANTHROPIC_API_KEY = "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"
-
-# ============================================================================
-# AZURE OPENAI CONFIGURATION (LEGACY - Kept as fallback)
-# ============================================================================
-AZURE_OPENAI_ENDPOINT = "https://jayr-mgs8va5p-eastus2.cognitiveservices.azure.com/"
-AZURE_OPENAI_API_KEY = "Fjzxa9pdfaG4At9cM22RKZZAGxjI309WmFSQVxaypAx5UkRmjxnvJQQJ99BJACHYHv6XJ3w3AAAAACOGXwko"
-AZURE_OPENAI_DEPLOYMENT = "gpt-5-chat"
-AZURE_OPENAI_API_VERSION = "2024-12-01-preview"
-AZURE_OPENAI_MAX_TOKENS = 16384
-AZURE_OPENAI_TEMPERATURE = 1.0
-
-# ============================================================================
-# LLM PROVIDER SELECTION
-# ============================================================================
-# Options: "vertex_claude" (default), "azure_openai" (fallback)
-LLM_PROVIDER = "vertex_claude"
-
 # ============================================================================
 # AZURE AI FOUNDRY PROJECT (for Agents with Bing Grounding)
 # ============================================================================
 AZURE_AI_PROJECT_ENDPOINT = "https://fabricfoundary.services.ai.azure.com/api/projects/fabricproject"
+AZURE_OPENAI_API_KEY = "Fjzxa9pdfaG4At9cM22RKZZAGxjI309WmFSQVxaypAx5UkRmjxnvJQQJ99BJACHYHv6XJ3w3AAAAACOGXwko"
+AZURE_OPENAI_DEPLOYMENT = "gpt-4o-mini-bing"
 BING_GROUNDING_CONNECTION_ID = "/subscriptions/df3a2439-dcb9-4a5e-94f1-dfc7094b7894/resourceGroups/uic-omi-dlake-prod-fab-rg/providers/Microsoft.CognitiveServices/accounts/fabricfoundary/projects/fabricproject/connections/fabricbing"
-
-# ============================================================================
-# LEGACY BING SEARCH CONFIGURATION (deprecated - use Azure AI Agents instead)
-# ============================================================================
-BING_SEARCH_API_KEY = "c3555303c57d469b9ebcda8ec4654dbe"
-BING_SEARCH_ENDPOINT = "https://api.bing.microsoft.com/v7.0/search"
 
 # ============================================================================
 # MICROSOFT FABRIC CONFIGURATION
@@ -69,11 +57,6 @@ BING_SEARCH_ENDPOINT = "https://api.bing.microsoft.com/v7.0/search"
 FABRIC_CLIENT_ID = "0944e22d-d0f1-40c1-a9fc-f422c05949f3"
 FABRIC_TENANT_ID = "e28d23e3-803d-418d-a720-c0bed39f77b6"
 FABRIC_CLIENT_SECRET = "oRF8Q~g03M~RuIJ3Tf.eKTS-W8kVvFQXCbIr-ac7"
-
-# ============================================================================
-# WORKSPACE BACKEND INTEGRATION
-# ============================================================================
-WORKSPACE_BACKEND_URL = "https://fabricbackend.lemonfield-12c57489.eastus.azurecontainerapps.io"
 
 # ============================================================================
 # CORS CONFIGURATION
@@ -120,24 +103,3 @@ def get_db_connection_string():
         f"Connection Timeout=30;"
     )
 
-# ============================================================================
-# VALIDATION
-# ============================================================================
-def validate_settings():
-    """
-    Validate that required settings are present
-    """
-    required_settings = {
-        "DATABASE_PASSWORD": DATABASE_PASSWORD,
-        "ANTHROPIC_API_KEY": ANTHROPIC_API_KEY,
-        "FABRIC_CLIENT_ID": FABRIC_CLIENT_ID,
-        "FABRIC_TENANT_ID": FABRIC_TENANT_ID,
-        "FABRIC_CLIENT_SECRET": FABRIC_CLIENT_SECRET,
-    }
-
-    missing = [key for key, value in required_settings.items() if not value]
-
-    if missing and not DISABLE_AUTH:
-        print(f"WARNING: Missing required settings: {', '.join(missing)}")
-
-    return len(missing) == 0

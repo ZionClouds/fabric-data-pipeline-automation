@@ -70,7 +70,8 @@ const AIChat = () => {
     handleTabClick,
     isTemporaryChat,
     setIsTemporaryChat,
-    setChatMessages
+    setChatMessages,
+    triggerConversationsRefresh
   } = usePipeline();
 
   const { user } = useAuth();
@@ -198,7 +199,8 @@ const AIChat = () => {
     clearChat();
     setConversationId(null);
     localStorage.removeItem('conversationId');
-    await loadConversations(); // Refresh list
+    await loadConversations();
+    triggerConversationsRefresh();
   };
 
   const handleSelectConversation = async (convId) => {
@@ -245,7 +247,8 @@ const AIChat = () => {
 
     try {
       await pipelineApi.updateConversation(conversationToDelete, renameTitle.trim(), null);
-      await loadConversations(); // Refresh list
+      await loadConversations();
+      triggerConversationsRefresh();
       setRenameDialogOpen(false);
       setConversationToDelete(null);
     } catch (err) {
@@ -269,6 +272,7 @@ const AIChat = () => {
         handleNewChat();
       } else {
         await loadConversations();
+        triggerConversationsRefresh();
       }
 
       setDeleteDialogOpen(false);
@@ -307,6 +311,7 @@ const AIChat = () => {
       const requestData = {
         workspace_id: selectedWorkspace?.id,
         lakehouse_name: selectedLakehouse?.name || null,
+        lakehouse_id: selectedLakehouse?.id || null,
         warehouse_name: selectedWarehouse?.name || null,
         messages: [
           ...chatMessages.map(m => ({
@@ -317,6 +322,7 @@ const AIChat = () => {
         ],
         context: {
           lakehouse_name: selectedLakehouse?.name || null,
+          lakehouse_id: selectedLakehouse?.id || null,
           warehouse_name: selectedWarehouse?.name || null
         }
       };
@@ -329,7 +335,8 @@ const AIChat = () => {
       if (response.data.conversation_id) {
         setConversationId(response.data.conversation_id);
         localStorage.setItem('conversationId', response.data.conversation_id);
-        await loadConversations(); // Refresh to show new/updated conversation
+        await loadConversations();
+        triggerConversationsRefresh();
       }
 
       // Handle job ID
@@ -415,7 +422,7 @@ const AIChat = () => {
             width: 30,
             height: 30,
             borderRadius: 1.25,
-            background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+            background: 'linear-gradient(135deg, #0078D4 0%, #005A9E 100%)',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
@@ -444,7 +451,7 @@ const AIChat = () => {
                       height: 17, 
                       fontSize: '0.65rem',
                       bgcolor: 'rgba(102, 126, 234, 0.1)',
-                      color: '#667eea',
+                      color: '#0078D4',
                       fontWeight: 600,
                       '& .MuiChip-label': {
                         px: 0.75
@@ -575,7 +582,7 @@ const AIChat = () => {
                       variant="body2" 
                       sx={{ 
                         fontWeight: conv.conversation_id === conversationId ? 600 : 500,
-                        color: conv.conversation_id === conversationId ? '#667eea' : 'text.primary',
+                        color: conv.conversation_id === conversationId ? '#0078D4' : 'text.primary',
                         fontSize: '0.82rem',
                         overflow: 'hidden',
                         textOverflow: 'ellipsis',
@@ -644,7 +651,7 @@ const AIChat = () => {
               borderRadius: 2,
               width: 30,
               height: 30,
-              color: '#667eea',
+              color: '#0078D4',
               overflow: 'hidden',
               transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
               '&::before': {
@@ -654,7 +661,7 @@ const AIChat = () => {
                 left: 0,
                 right: 0,
                 bottom: 0,
-                background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                background: 'linear-gradient(135deg, #0078D4 0%, #005A9E 100%)',
                 opacity: 0,
                 transition: 'opacity 0.3s ease'
               },
@@ -717,7 +724,7 @@ const AIChat = () => {
             }}
           >
             <ListItemIcon>
-              <EditIcon fontSize="small" sx={{ color: '#667eea', fontSize: 16 }} />
+              <EditIcon fontSize="small" sx={{ color: '#0078D4', fontSize: 16 }} />
             </ListItemIcon>
             <ListItemText primaryTypographyProps={{ fontSize: '0.8rem' }}>Rename</ListItemText>
           </MenuItem>
@@ -774,7 +781,7 @@ const AIChat = () => {
                   height: 48,
                   mx: 'auto',
                   mb: 2,
-                  background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                  background: 'linear-gradient(135deg, #0078D4 0%, #005A9E 100%)',
                   boxShadow: '0 8px 24px rgba(102, 126, 234, 0.25)',
                   border: '3px solid rgba(255, 255, 255, 0.9)',
                   animation: 'pulse 2s infinite ease-in-out',
@@ -898,7 +905,7 @@ const AIChat = () => {
                         left: 0,
                         right: 0,
                         height: '2px',
-                        background: 'linear-gradient(90deg, #667eea 0%, #764ba2 100%)',
+                        background: 'linear-gradient(90deg, #0078D4 0%, #005A9E 100%)',
                         transform: 'translateX(-100%)',
                         transition: 'transform 0.3s ease',
                       },
@@ -1020,7 +1027,7 @@ const AIChat = () => {
                     {message.role === 'assistant' && (
                       <Avatar
                         sx={{
-                          background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                          background: 'linear-gradient(135deg, #0078D4 0%, #005A9E 100%)',
                           width: 32,
                           height: 32,
                           mr: 1.5,
@@ -1053,7 +1060,7 @@ const AIChat = () => {
                           p: 2,
                           backgroundColor: message.role === 'assistant' 
                             ? 'white' 
-                            : 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                            : 'linear-gradient(135deg, #0078D4 0%, #005A9E 100%)',
                           color: message.role === 'assistant' ? 'text.primary' : 'white',
                           borderRadius: message.role === 'assistant' ? '18px 18px 18px 4px' : '18px 18px 4px 18px',
                           position: 'relative',
@@ -1061,7 +1068,7 @@ const AIChat = () => {
                             ? '0 4px 12px rgba(102, 126, 234, 0.15)' 
                             : '0 2px 8px rgba(0,0,0,0.06)',
                           background: message.role === 'user' 
-                            ? 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)'
+                            ? 'linear-gradient(135deg, #0078D4 0%, #005A9E 100%)'
                             : 'white',
                           border: message.role === 'assistant' ? '1px solid rgba(0,0,0,0.04)' : 'none',
                           backdropFilter: 'blur(10px)',
@@ -1091,7 +1098,7 @@ const AIChat = () => {
                             height: 0,
                             borderTop: '4px solid transparent',
                             borderBottom: '4px solid transparent',
-                            borderLeft: '4px solid #667eea',
+                            borderLeft: '4px solid #0078D4',
                           }
                         }}
                       >
@@ -1287,7 +1294,7 @@ const AIChat = () => {
                     <Box sx={{ display: 'flex', mb: 1.5, alignItems: 'flex-start' }}>
                       <Avatar
                         sx={{
-                          background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                          background: 'linear-gradient(135deg, #0078D4 0%, #005A9E 100%)',
                           width: 32,
                           height: 32,
                           mr: 1.5,
@@ -1362,7 +1369,7 @@ const AIChat = () => {
                 bgcolor: 'rgba(102, 126, 234, 0.08)',
                 border: '1px solid rgba(102, 126, 234, 0.2)',
                 '& .MuiAlert-icon': {
-                  color: '#667eea'
+                  color: '#0078D4'
                 }
               }}
             >
@@ -1489,7 +1496,7 @@ const AIChat = () => {
         <DialogTitle sx={{ 
           fontWeight: 700,
           fontSize: '1.25rem',
-          background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+          background: 'linear-gradient(135deg, #0078D4 0%, #005A9E 100%)',
           backgroundClip: 'text',
           WebkitBackgroundClip: 'text',
           WebkitTextFillColor: 'transparent',
@@ -1513,12 +1520,12 @@ const AIChat = () => {
               '& .MuiOutlinedInput-root': {
                 borderRadius: 2,
                 '&.Mui-focused fieldset': {
-                  borderColor: '#667eea',
+                  borderColor: '#0078D4',
                   borderWidth: 2
                 }
               },
               '& .MuiInputLabel-root.Mui-focused': {
-                color: '#667eea'
+                color: '#0078D4'
               }
             }}
           />
@@ -1544,7 +1551,7 @@ const AIChat = () => {
               textTransform: 'none',
               fontWeight: 600,
               px: 3,
-              background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+              background: 'linear-gradient(135deg, #0078D4 0%, #005A9E 100%)',
               '&:hover': {
                 background: 'linear-gradient(135deg, #5a67d8 0%, #6b46c1 100%)',
                 transform: 'translateY(-1px)',
@@ -1644,7 +1651,7 @@ const AIChat = () => {
               position: 'fixed',
               bottom: 120,
               right: 24,
-              background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+              background: 'linear-gradient(135deg, #0078D4 0%, #005A9E 100%)',
               boxShadow: '0 8px 32px rgba(102, 126, 234, 0.3)',
               backdropFilter: 'blur(10px)',
               border: '1px solid rgba(255, 255, 255, 0.2)',

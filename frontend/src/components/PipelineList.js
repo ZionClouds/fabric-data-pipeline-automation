@@ -573,7 +573,7 @@ const PipelineList = () => {
                           fontSize: '15px',
                           fontWeight: 600,
                           borderColor: 'rgba(102, 126, 234, 0.5)',
-                          color: '#667eea',
+                          color: '#0078D4',
                           borderRadius: '8px'
                         }}
                       >

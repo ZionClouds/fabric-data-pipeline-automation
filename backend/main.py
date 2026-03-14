@@ -1,7 +1,6 @@
-from fastapi import FastAPI, HTTPException, Depends, Header
+from fastapi import FastAPI, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from pydantic import BaseModel
 from typing import List, Optional, Dict, Any
 import logging
 import httpx
@@ -10,7 +9,6 @@ from jwt import PyJWKClient
 import ssl
 import certifi
 import os
-import asyncio
 import random
 import re
 import json
@@ -23,11 +21,11 @@ from services.fabric_api_service import FabricAPIService
 from services.proactive_suggestions import proactive_service
 from services.medallion_architect import medallion_service
 from models.pipeline_models import (
-    ChatMessage, ChatRequest, ChatResponse,
+    ChatRequest, ChatResponse,
     PipelineGenerateRequest, PipelineGenerateResponse,
     LinkedServiceRequest, LinkedServiceResponse,
     AutomatedPipelineGenerateRequest, AutomatedPipelineGenerateResponse,
-    ConnectionConfig, PipelineArchitecture, LayerConfig,
+    PipelineArchitecture,
     FileProcessingPipelineRequest, FileProcessingPipelineResponse
 )
 
@@ -142,9 +140,9 @@ async def startup_event():
     try:
         logger.info("Initializing OpenAI Agents SDK...")
         initialize_runner(
-            model=settings.AZURE_OPENAI_DEPLOYMENT or "gpt-4o-mini",
-            temperature=0.7,
-            max_tokens=4096,
+            model=settings.CLAUDE_MODEL,
+            temperature=settings.CLAUDE_TEMPERATURE,
+            max_tokens=settings.CLAUDE_MAX_TOKENS,
             fabric_service=fabric_service,
         )
         logger.info("[OK] OpenAI Agents SDK initialized successfully")
@@ -302,7 +300,7 @@ async def validate_token(credentials: HTTPAuthorizationCredentials = Depends(sec
                     return {"email": user_email, "name": user_name or "Development User", "oid": payload.get("oid", "dev-user-id")}
             except Exception as e:
                 logger.debug(f"Development mode: could not decode token: {e}")
-        return {"email": "dev@example.com", "name": "Development User", "oid": "dev-user-id"}
+        return {"email": "dev123@gmail.com", "name": "dev123", "oid": "dev-user-id"}
 
     if credentials is None:
         raise HTTPException(status_code=401, detail="Authorization header missing")
@@ -630,6 +628,7 @@ async def chat_with_pipeline_architect(request: ChatRequest, user: dict = Depend
             workspace_id=request.workspace_id,
             user_id=user['email'],
             lakehouse_name=request.lakehouse_name,
+            lakehouse_id=request.lakehouse_id,
             warehouse_name=request.warehouse_name,
         )
 

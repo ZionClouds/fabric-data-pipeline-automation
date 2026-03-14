@@ -72,6 +72,7 @@ class ChatRequest(BaseModel):
     messages: List[ChatMessage]
     context: Optional[Dict[str, Any]] = None
     lakehouse_name: Optional[str] = None  # Selected lakehouse from dropdown
+    lakehouse_id: Optional[str] = None  # Selected lakehouse ID for Fabric API
     warehouse_name: Optional[str] = None  # Selected warehouse from dropdown
 
 class TransformationRequest(BaseModel):
